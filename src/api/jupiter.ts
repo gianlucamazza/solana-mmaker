@@ -1,4 +1,4 @@
-import { Connection, Keypair, VersionedTransaction, TransactionConfirmationStrategy, BlockheightBasedTransactionConfirmationStrategy } from '@solana/web3.js';
+import { Connection, Keypair, VersionedTransaction } from '@solana/web3.js';
 import fetch from 'cross-fetch';
 
 /**
