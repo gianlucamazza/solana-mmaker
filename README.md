@@ -34,7 +34,7 @@ The project is structured as follows:
 
 ## Setup
 
-1. Install Node.js: Ensure that you have Node.js (version 14.x or later) installed on your machine. You can download it from (here)["https://nodejs.org/"]
+1. Install Node.js: Ensure that you have Node.js (version 14.x or later) installed on your machine. You can download it from [here]("https://nodejs.org/")
 2. Clone the Repository: Clone the repository to your local machine using the following command:
     ```bash
     git clone https://github.com/gianlucamazza/solana-mmaker.git

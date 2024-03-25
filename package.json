@@ -7,8 +7,12 @@
     "dev": "ts-node src/main.ts",
     "build": "tsc"
   },
-  "keywords": [],
-  "author": "",
+  "keywords": [
+    "solana",
+    "trading",
+    "bot"
+  ],
+  "author": "gianlucamazza",
   "license": "ISC",
   "dependencies": {
     "@jup-ag/api": "^6.0.11",
