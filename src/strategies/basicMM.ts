@@ -110,12 +110,9 @@ export class MarketMaker {
         const token0Value = token0Balance.mul(token0Price);
         const token1Value = token1Balance.mul(token1Price);
 
-        const totalValue = token0Value.add(token1Value);
-        const targetValuePerToken = totalValue.div(2);
+        const totalPortfolioValue = token0Value.add(token1Value);
+        const targetValuePerToken = totalPortfolioValue.div(new Decimal(2));
 
-        // keep the ratio of the two tokens in the pool at 50/50 (in terms of USD value)
-        const minRebalanceValue = targetValuePerToken.mul(new Decimal(1).minus(this.rebalancePercentage));
-        const maxRebalanceValue = targetValuePerToken.mul(new Decimal(1).plus(this.rebalancePercentage));
 
         let solAmountToTrade = new Decimal(0);
         let mbcAmountToTrade = new Decimal(0);
@@ -124,26 +121,21 @@ export class MarketMaker {
         console.log(`${pair.token0.symbol} value: ${token0Value.toString()}`);
         console.log(`${pair.token1.symbol} value: ${token1Value.toString()}`);
 
-        if (token0Value.gt(maxRebalanceValue)) {
+        if (token0Value.gt(targetValuePerToken)) {
             // If token0's value exceeds the maximum tolerated value, trade some of it for token1
-            const excessValue = token0Value.sub(targetValuePerToken);
-            solAmountToTrade = excessValue.div(token0Price);
+            const valueDiff = token0Value.sub(targetValuePerToken);
+            solAmountToTrade = valueDiff.div(token0Price);
             tradeNeeded = true;
-        } else if (token0Value.lt(minRebalanceValue)) {
+        } else if (token1Value.gt(targetValuePerToken)) {
             // If token0's value is below the minimum tolerated value, trade some token1 for it
-            const deficitValue = targetValuePerToken.sub(token0Value);
-            mbcAmountToTrade = deficitValue.div(token1Price);
+            const valueDiff = token1Value.sub(targetValuePerToken);
+            mbcAmountToTrade = valueDiff.div(token1Price);
             tradeNeeded = true;
-        } else if (token1Value.gt(maxRebalanceValue)) {
-            // If token1's value exceeds the maximum tolerated value, trade some of it for token0
-            const excessValue = token1Value.sub(targetValuePerToken);
-            mbcAmountToTrade = excessValue.div(token1Price);
-            tradeNeeded = true;
-        } else if (token1Value.lt(minRebalanceValue)) {
-            // If token1's value is below the minimum tolerated value, trade some token0 for it
-            const deficitValue = targetValuePerToken.sub(token1Value);
-            solAmountToTrade = deficitValue.div(token0Price);
-            tradeNeeded = true;
+        }
+
+        const minimumTradeAmount = new Decimal(0.01);
+        if (solAmountToTrade.lt(minimumTradeAmount) && mbcAmountToTrade.lt(minimumTradeAmount)) {
+            tradeNeeded = false;
         }
 
         return { tradeNeeded, solAmountToTrade, mbcAmountToTrade };
