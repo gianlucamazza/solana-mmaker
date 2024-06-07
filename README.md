@@ -48,10 +48,12 @@ The project is structured as follows:
     ```
     SOLANA_RPC_ENDPOINT=<Your Solana RPC endpoint URL>
     USER_KEYPAIR=<Path to your Solana wallet keypair file>
+    SOLANA_MNEMONIC =<Your bip39 compatible mnemonic>
     ENABLE_TRADING=<true or false>
     ```
-    Replace `<Your Solana RPC endpoint URL>` with your Solana RPC endpoint, `<Path to your Solana wallet keypair file>` with the path to your Solana wallet keypair file, and set ENABLE_TRADING to true to enable live trading or false to run in simulation mode.
-
+    Replace `<Your Solana RPC endpoint URL>` with your Solana RPC endpoint.
+    Replace `<Path to your Solana wallet keypair file>` with the path to your Solana wallet keypair file or use your mnemonic in the `SOLANA_MNEMONIC` field.
+    Set `ENABLE_TRADING` to true to enable live trading or false to run in simulation mode.
 ## Running the Bot
 
 To start the market maker bot, execute the following command in the terminal:
