@@ -2,7 +2,7 @@ import dotenv from 'dotenv';
 import { JupiterClient } from './api/jupiter';
 import { setupSolanaConnection } from './api/solana';
 import { MarketMaker } from './strategies/basicMM';
-import { getUserKeypair } from './wallet';
+import { loadKeypair } from './wallet';
 
 async function main() {
     dotenv.config();
@@ -21,7 +21,7 @@ async function main() {
 
     const connection = setupSolanaConnection(process.env.SOLANA_RPC_ENDPOINT);
     console.log(`Network: ${connection.rpcEndpoint}`);
-    const userKeypair = getUserKeypair();
+    const userKeypair = loadKeypair();
     console.log('MarketMaker PubKey:', userKeypair.publicKey.toBase58());
     const jupiterClient = new JupiterClient(connection, userKeypair);
 
