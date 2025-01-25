@@ -59,14 +59,17 @@ export class JupiterClient {
      * @param quoteResponse The response from the getQuote method.
      * @param wrapAndUnwrapSol Whether to wrap and unwrap SOL if necessary.
      * @param feeAccount An optional fee account address.
+     * @param priorityFees An optional priority fee amount in lamports (default in Solana : 100000).
      * @returns A promise that resolves to the swap transaction.
      */
-    async getSwapTransaction(quoteResponse: any, wrapAndUnwrapSol: boolean = true, feeAccount?: string): Promise<any> {
+    async getSwapTransaction(quoteResponse: any, wrapAndUnwrapSol: boolean = true, priorityFees = 200000, feeAccount?: string): Promise<any> {
         const body = {
             quoteResponse,
             userPublicKey: this.userKeypair.publicKey.toString(),
             wrapAndUnwrapSol,
-            ...(feeAccount && { feeAccount })
+            ...(feeAccount && { feeAccount }),
+            ...(priorityFees !== undefined && { prioritizationFeeLamports: priorityFees }),
+            ...(priorityFees !== undefined && { dynamicComputeUnitLimit: true })
         };
 
         const response = await fetch(`${this.baseUri}/swap`, {
