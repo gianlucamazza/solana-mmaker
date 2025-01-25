@@ -1,5 +1,6 @@
-import { Connection, Keypair, VersionedTransaction } from '@solana/web3.js';
+import { Connection, Keypair, VersionedTransaction, BlockhashWithExpiryBlockHeight } from '@solana/web3.js';
 import fetch from 'cross-fetch';
+import { transactionSenderAndConfirmationWaiter } from '../utils/transactionSender';
 
 /**
  * Class for interacting with the Jupiter API to perform token swaps on the Solana blockchain.
@@ -93,16 +94,29 @@ export class JupiterClient {
             let transaction = VersionedTransaction.deserialize(swapTransactionBuf);
             transaction.sign([this.userKeypair]);
 
-            const txId = await this.connection.sendRawTransaction(transaction.serialize(), {
-                skipPreflight: true,
-                preflightCommitment: 'singleGossip',
-            });
-            console.log('Swap transaction sent:', txId);
+            const connection = this.getConnection();
 
-            const confirmation = await this.waitForTransactionConfirmation(txId);
+            // Retrieving the necessary data for `transactionSenderAndConfirmationWaiter`
+            const latestBlockhash = await connection.getLatestBlockhash();
+            const blockhashWithExpiryBlockHeight: BlockhashWithExpiryBlockHeight = {
+                blockhash: latestBlockhash.blockhash,
+                lastValidBlockHeight: latestBlockhash.lastValidBlockHeight,
+            };
+
+            const serializedTransaction = Buffer.from(transaction.serialize());
+
+            // Sending the transaction using `transactionSenderAndConfirmationWaiter`
+            const confirmation = await transactionSenderAndConfirmationWaiter({
+                connection,
+                serializedTransaction,
+                blockhashWithExpiryBlockHeight,
+            });
 
             if (!confirmation) {
-                console.error('Swap transaction confirmation timed out');
+                console.error("Swap transaction expired or failed.");
+                return false;
+            } else if (confirmation.meta && confirmation.meta.err) {
+                console.error("Swap transaction failed with error:", confirmation.meta.err);
                 return false;
             }
 
