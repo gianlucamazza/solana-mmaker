@@ -1,5 +1,6 @@
-import { Connection, Keypair, VersionedTransaction } from '@solana/web3.js';
+import { Connection, Keypair, VersionedTransaction, BlockhashWithExpiryBlockHeight } from '@solana/web3.js';
 import fetch from 'cross-fetch';
+import { transactionSenderAndConfirmationWaiter } from '../utils/transactionSender';
 
 /**
  * Class for interacting with the Jupiter API to perform token swaps on the Solana blockchain.
@@ -58,14 +59,17 @@ export class JupiterClient {
      * @param quoteResponse The response from the getQuote method.
      * @param wrapAndUnwrapSol Whether to wrap and unwrap SOL if necessary.
      * @param feeAccount An optional fee account address.
+     * @param priorityFees An optional priority fee amount in lamports (default in Solana : 100000).
      * @returns A promise that resolves to the swap transaction.
      */
-    async getSwapTransaction(quoteResponse: any, wrapAndUnwrapSol: boolean = true, feeAccount?: string): Promise<any> {
+    async getSwapTransaction(quoteResponse: any, wrapAndUnwrapSol: boolean = true, priorityFees = 200000, feeAccount?: string): Promise<any> {
         const body = {
             quoteResponse,
             userPublicKey: this.userKeypair.publicKey.toString(),
             wrapAndUnwrapSol,
-            ...(feeAccount && { feeAccount })
+            ...(feeAccount && { feeAccount }),
+            ...(priorityFees !== undefined && { prioritizationFeeLamports: priorityFees }),
+            ...(priorityFees !== undefined && { dynamicComputeUnitLimit: true })
         };
 
         const response = await fetch(`${this.baseUri}/swap`, {
@@ -93,16 +97,29 @@ export class JupiterClient {
             let transaction = VersionedTransaction.deserialize(swapTransactionBuf);
             transaction.sign([this.userKeypair]);
 
-            const txId = await this.connection.sendRawTransaction(transaction.serialize(), {
-                skipPreflight: true,
-                preflightCommitment: 'singleGossip',
-            });
-            console.log('Swap transaction sent:', txId);
+            const connection = this.getConnection();
 
-            const confirmation = await this.waitForTransactionConfirmation(txId);
+            // Retrieving the necessary data for `transactionSenderAndConfirmationWaiter`
+            const latestBlockhash = await connection.getLatestBlockhash();
+            const blockhashWithExpiryBlockHeight: BlockhashWithExpiryBlockHeight = {
+                blockhash: latestBlockhash.blockhash,
+                lastValidBlockHeight: latestBlockhash.lastValidBlockHeight,
+            };
+
+            const serializedTransaction = Buffer.from(transaction.serialize());
+
+            // Sending the transaction using `transactionSenderAndConfirmationWaiter`
+            const confirmation = await transactionSenderAndConfirmationWaiter({
+                connection,
+                serializedTransaction,
+                blockhashWithExpiryBlockHeight,
+            });
 
             if (!confirmation) {
-                console.error('Swap transaction confirmation timed out');
+                console.error("Swap transaction expired or failed.");
+                return false;
+            } else if (confirmation.meta && confirmation.meta.err) {
+                console.error("Swap transaction failed with error:", confirmation.meta.err);
                 return false;
             }
 
