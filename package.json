@@ -21,8 +21,17 @@
     "@solana/spl-token-registry": "^0.2.4574",
     "@solana/web3.js": "^1.90.0",
     "bs58": "^5.0.0",
-    "cross-fetch": "^4.0.0",
     "dotenv": "^16.4.4",
     "jsbi": "^4.3.0"
+  },
+  "devDependencies": {
+    "@types/bip39": "^2.4.2",
+    "@types/bs58": "^4.0.4",
+    "@types/dotenv": "^6.1.1",
+    "@types/node": "^22.13.6",
+    "@types/promise-retry": "^1.1.6",
+    "cross-fetch": "^4.1.0",
+    "decimal.js": "^10.5.0",
+    "typescript": "^5.8.2"
   }
 }

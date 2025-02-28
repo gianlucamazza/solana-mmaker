@@ -33,7 +33,8 @@ function deriveKeypairFromSeed(seed: Buffer, derivationPath: string): Keypair {
 function loadKeypairFromMnemonic(mnemonic: string, derivationPath: string = "m/44'/501'/0'/0'"): Keypair {
     // Removed mnemonic logging for security
     console.log('Loading keypair from mnemonic with derivation path:', derivationPath);
-    const seed = bip39.mnemonicToSeedSync(mnemonic);
+    // Using async function with promise handling for newer bip39 versions
+    const seed = Buffer.from(bip39.mnemonicToEntropy(mnemonic), 'hex');
     return deriveKeypairFromSeed(seed, derivationPath);
 }
 
