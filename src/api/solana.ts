@@ -18,7 +18,7 @@ export function setupSolanaConnection(endpoint: string): Connection {
  */
 export function getUserKeypair(filePath: string): Keypair {
     const secretKeyString = fs.readFileSync(filePath, { encoding: 'utf8' });
-    console.log(secretKeyString);
+    // Removed logging of private key for security
     const secretKey = bs58.decode(secretKeyString);
     return Keypair.fromSecretKey(secretKey);
 }

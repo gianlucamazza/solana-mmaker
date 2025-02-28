@@ -16,23 +16,23 @@ function loadKeypairFromFile(filePath: string): Keypair {
         const secretKeyArray = JSON.parse(fileContent);
         return Keypair.fromSecretKey(Uint8Array.from(secretKeyArray));
     } catch (error) {
-        console.error(`Errore durante il caricamento della chiave privata da ${filePath}:`, error);
+        console.error(`Error loading private key from ${filePath}:`, error);
         process.exit(1);
     }
 }
 
 // Derive keypair from seed and derivation path
 function deriveKeypairFromSeed(seed: Buffer, derivationPath: string): Keypair {
-    console.log('Derivation path:', derivationPath);
+    // Removed sensitive information logging for security
     const derivedSeed = derivePath(derivationPath, seed.toString('hex')).key;
-    console.log('Derived seed:', derivedSeed);
     const keypair = nacl.sign.keyPair.fromSeed(derivedSeed);
     return Keypair.fromSecretKey(new Uint8Array([...keypair.secretKey]));
 }
 
 // Load keypair from mnemonic
 function loadKeypairFromMnemonic(mnemonic: string, derivationPath: string = "m/44'/501'/0'/0'"): Keypair {
-    console.log('Mnemonic:', mnemonic);
+    // Removed mnemonic logging for security
+    console.log('Loading keypair from mnemonic with derivation path:', derivationPath);
     const seed = bip39.mnemonicToSeedSync(mnemonic);
     return deriveKeypairFromSeed(seed, derivationPath);
 }

@@ -17,6 +17,7 @@ export class MarketMaker {
     slippageBps: number
     priceTolerance: number
     rebalancePercentage: number
+    minimumTradeAmount: Decimal
 
     /**
      * Initializes a new instance of the MarketMaker class with default properties.
@@ -30,6 +31,7 @@ export class MarketMaker {
         this.slippageBps = 50; // 0.5%
         this.priceTolerance = 0.02; // 2%
         this.rebalancePercentage = 0.5; // 50%
+        this.minimumTradeAmount = new Decimal(0.01); // Minimum amount to trade
     }
 
     /**
@@ -69,7 +71,11 @@ export class MarketMaker {
 
         // Get USD value for both tokens
         const tradeNecessity = await this.determineTradeNecessity(jupiterClient, pair, token0Balance, token1Balance);
-        const { tradeNeeded, solAmountToTrade, mbcAmountToTrade } = tradeNecessity!;
+        if (!tradeNecessity) {
+            console.error('Failed to determine trade necessity');
+            return;
+        }
+        const { tradeNeeded, solAmountToTrade, mbcAmountToTrade } = tradeNecessity;
 
         if (tradeNeeded) {
             console.log('Trade needed');
@@ -78,15 +84,23 @@ export class MarketMaker {
                 const lamportsAsString = fromNumberToLamports(solAmountToTrade.toNumber(), pair.token0.decimals).toString();
                 const quote = await jupiterClient.getQuote(pair.token0.address, pair.token1.address, lamportsAsString, this.slippageBps);
                 const swapTransaction = await jupiterClient.getSwapTransaction(quote);
-                if (enableTrading) await jupiterClient.executeSwap(swapTransaction);
-                else console.log('Trading disabled');
+                if (enableTrading) {
+                    const success = await jupiterClient.executeSwap(swapTransaction);
+                    console.log(success ? 'Swap successful' : 'Swap failed');
+                } else {
+                    console.log('Trading disabled');
+                }
             } else if (mbcAmountToTrade.gt(0)) {
                 console.log(`Trading ${mbcAmountToTrade.toString()} MBC for SOL...`);
                 const lamportsAsString = fromNumberToLamports(mbcAmountToTrade.toNumber(), pair.token1.decimals).toString();
                 const quote = await jupiterClient.getQuote(pair.token1.address, pair.token0.address, lamportsAsString, this.slippageBps);
                 const swapTransaction = await jupiterClient.getSwapTransaction(quote);
-                if (enableTrading) await jupiterClient.executeSwap(swapTransaction);
-                else console.log('Trading disabled');
+                if (enableTrading) {
+                    const success = await jupiterClient.executeSwap(swapTransaction);
+                    console.log(success ? 'Swap successful' : 'Swap failed');
+                } else {
+                    console.log('Trading disabled');
+                }
             }
         } else {
             console.log('No trade needed');
@@ -133,8 +147,8 @@ export class MarketMaker {
             tradeNeeded = true;
         }
 
-        const minimumTradeAmount = new Decimal(0.01);
-        if (solAmountToTrade.lt(minimumTradeAmount) && mbcAmountToTrade.lt(minimumTradeAmount)) {
+        // Using configurable minimum trade amount rather than hardcoded value
+        if (solAmountToTrade.lt(this.minimumTradeAmount) && mbcAmountToTrade.lt(this.minimumTradeAmount)) {
             tradeNeeded = false;
         }
 
@@ -166,9 +180,14 @@ export class MarketMaker {
      * @returns Token balance as a Decimal.
      */
     async getSPLTokenBalance(connection: Connection, walletAddress: PublicKey, tokenMintAddress: PublicKey): Promise<Decimal> {
-        const accounts = await connection.getParsedTokenAccountsByOwner(walletAddress, { programId: TOKEN_PROGRAM_ID });
-        const accountInfo = accounts.value.find((account: any) => account.account.data.parsed.info.mint === tokenMintAddress.toBase58());
-        return accountInfo ? new Decimal(accountInfo.account.data.parsed.info.tokenAmount.amount) : new Decimal(0);
+        try {
+            const accounts = await connection.getParsedTokenAccountsByOwner(walletAddress, { programId: TOKEN_PROGRAM_ID });
+            const accountInfo = accounts.value.find((account: any) => account.account.data.parsed.info.mint === tokenMintAddress.toBase58());
+            return accountInfo ? new Decimal(accountInfo.account.data.parsed.info.tokenAmount.amount) : new Decimal(0);
+        } catch (error) {
+            console.error('Error fetching SPL token balance:', error);
+            return new Decimal(0);
+        }
     }
 
     /**

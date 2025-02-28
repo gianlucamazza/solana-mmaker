@@ -72,7 +72,7 @@ export async function transactionSenderAndConfirmationWaiter({
       }
     };
 
-    abortableResender();
+    void abortableResender(); // Using void operator to indicate we're intentionally ignoring the Promise
 
     const lastValidBlockHeight =
       blockhashWithExpiryBlockHeight.lastValidBlockHeight - 150;

@@ -8,21 +8,18 @@ import Decimal from 'decimal.js';
  * @returns {number} - The amount in the smallest unit.
  */
 export function fromNumberToLamports(value: number, decimals: number): number {
-    const result = value * Math.pow(10, decimals);
-    const roundedResult = result.toFixed(0);
-    return parseInt(roundedResult);
+    // Using Decimal.js for better precision with large numbers
+    return new Decimal(value).mul(new Decimal(10).pow(decimals)).toNumber();
 }
 
 /**
  * Converts the smallest unit of tokens (e.g., lamports for SOL) to a readable number.
  * @param {number} value - The amount in the smallest unit.
  * @param {number} decimals - The number of decimals the token uses.
- * @returns {number} - The readable amount.
+ * @returns {number} - The readable amount with decimals preserved.
  */
 export function fromLamportsToNumber(value: number, decimals: number): number {
-    const result = value / Math.pow(10, decimals);
-    const roundedResult = result.toFixed(0);
-    return parseInt(roundedResult);
+    return new Decimal(value).div(new Decimal(10).pow(decimals)).toNumber();
 }
 
 /**

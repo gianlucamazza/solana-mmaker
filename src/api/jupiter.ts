@@ -59,7 +59,7 @@ export class JupiterClient {
      * @param quoteResponse The response from the getQuote method.
      * @param wrapAndUnwrapSol Whether to wrap and unwrap SOL if necessary.
      * @param feeAccount An optional fee account address.
-     * @param priorityFees An optional priority fee amount in lamports (default in Solana : 100000).
+     * @param priorityFees An optional priority fee amount in lamports (default: 200000).
      * @returns A promise that resolves to the swap transaction.
      */
     async getSwapTransaction(quoteResponse: any, wrapAndUnwrapSol: boolean = true, priorityFees = 200000, feeAccount?: string): Promise<any> {
