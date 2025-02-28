@@ -57,11 +57,15 @@ This project is a Solana Market Maker Bot designed to automate trading strategie
 4. Environment Variables: Create a `.env` file in the project root:
     ```
     SOLANA_RPC_ENDPOINT=<Your Solana RPC endpoint URL>
-    USER_KEYPAIR=<Path to your Solana wallet keypair file>
-    SOLANA_MNEMONIC=<Your bip39 compatible mnemonic>
     ENABLE_TRADING=<true or false>
+    SOLANA_MNEMONIC=<Your bip39 compatible mnemonic>
+    CLUSTER=<mainnet-beta or devnet>
     ```
-    Either `USER_KEYPAIR` or `SOLANA_MNEMONIC` is required, not both.
+    For wallet configuration, either:
+    - Provide your BIP39 mnemonic in the `SOLANA_MNEMONIC` environment variable, or
+    - The bot will automatically use the Solana keypair at `~/.config/solana/id.json` if available
+    
+    The `CLUSTER` is optional and defaults to "mainnet-beta".
 
 ## Running the Bot
 
