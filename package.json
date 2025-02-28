@@ -16,9 +16,7 @@
   "license": "ISC",
   "dependencies": {
     "@jup-ag/api": "^6.0.40",
-    "@jup-ag/core": "^4.0.0-beta.21",
-    "@project-serum/anchor": "^0.26.0",
-    "@solana/spl-token-registry": "^0.2.4574",
+    "@solana/spl-token": "^0.1.8",
     "@solana/web3.js": "1.90.0",
     "bip39": "^3.1.0",
     "bs58": "^6.0.0",
