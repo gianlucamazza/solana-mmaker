@@ -69,7 +69,7 @@ This project is a Solana Market Maker Bot designed to automate trading strategie
 
 ## Running the Bot
 
-First, create a `.env` file with the required environment variables:
+First, create a `.env` file with the required environment variables (if you haven't done so in the Setup step):
 
 ```bash
 # Example .env file
@@ -77,12 +77,6 @@ SOLANA_RPC_ENDPOINT=https://api.mainnet-beta.solana.com
 ENABLE_TRADING=false
 SOLANA_MNEMONIC=your-mnemonic-phrase-here
 CLUSTER=mainnet-beta
-```
-
-To install dependencies:
-
-```bash
-npm install
 ```
 
 To start the market maker bot in development mode:

@@ -25,6 +25,7 @@
 - **Constants**: Define token addresses and config values in constants directory
 
 ## Dependencies
-- Solana web3.js and SPL Token
-- Jupiter Aggregator API
+- Solana web3.js v1.90.0
+- Jupiter API v6
+- SPL Token v0.1.8
 - TypeScript and Node.js (v18+)
