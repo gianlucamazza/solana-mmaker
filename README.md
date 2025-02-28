@@ -79,6 +79,12 @@ SOLANA_MNEMONIC=your-mnemonic-phrase-here
 CLUSTER=mainnet-beta
 ```
 
+To install dependencies:
+
+```bash
+npm install
+```
+
 To start the market maker bot in development mode:
 
 ```bash
