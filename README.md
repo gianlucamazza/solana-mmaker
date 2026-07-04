@@ -79,7 +79,7 @@ This project is a Solana Market Maker Bot designed to automate trading strategie
 | `MM_SLIPPAGE_BPS` | no | Maximum slippage in basis points (default: `50`) |
 | `MM_PRICE_TOLERANCE` | no | Portfolio imbalance fraction required to trigger a rebalance (default: `0.02`) |
 | `MM_REBALANCE_PERCENTAGE` | no | Target share of total value held in the first token (default: `0.5`) |
-| `MM_MINIMUM_TRADE_AMOUNT` | no | Minimum token amount for a trade to be executed (default: `0.01`) |
+| `MM_MINIMUM_TRADE_VALUE_USD` | no | Minimum trade value in USD for a rebalance to be executed (default: `1`) |
 
 \* Keypair resolution order: `USER_KEYPAIR` file → `SOLANA_MNEMONIC` → `~/.config/solana/id.json`. Set at most one of the two variables.
 
@@ -115,7 +115,7 @@ const marketMaker = new MarketMaker({
     slippageBps: 50,            // max slippage in basis points
     priceTolerance: 0.02,       // imbalance fraction that triggers a rebalance
     rebalancePercentage: 0.5,   // target share of value in the first token
-    minimumTradeAmount: 0.01,   // minimum token amount worth trading
+    minimumTradeValueUsd: 1,    // minimum trade value in USD worth executing
 });
 ```
 

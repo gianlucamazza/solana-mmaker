@@ -38,7 +38,7 @@ describe('MarketMaker config validation', () => {
 
     it('rejects a non-positive price tolerance and minimum trade amount', () => {
         expect(() => new MarketMaker({ priceTolerance: 0 })).toThrow(/priceTolerance/);
-        expect(() => new MarketMaker({ minimumTradeAmount: 0 })).toThrow(/minimumTradeAmount/);
+        expect(() => new MarketMaker({ minimumTradeValueUsd: 0 })).toThrow(/minimumTradeValueUsd/);
     });
 
     it('rejects a wait time below 1000ms', () => {
@@ -122,11 +122,21 @@ describe('determineTradeNecessity', () => {
         expect(result.tradeNeeded).toBe(false);
     });
 
-    it('does not trade below the minimum trade amount', async () => {
-        const { mm, pair } = makeMarketMaker({ minimumTradeAmount: 1 });
-        // Surplus is 0.5 SOL, below the configured minimum of 1
+    it('does not trade below the minimum trade value', async () => {
+        const { mm, pair } = makeMarketMaker({ minimumTradeValueUsd: 100 });
+        // Surplus is 0.5 SOL = $50, below the configured minimum of $100
         const result = await mm.determineTradeNecessity(
             fakeJupiterClient(PRICES), pair, new Decimal(2), new Decimal(100)
+        );
+        expect(result.tradeNeeded).toBe(false);
+    });
+
+    it('does not trade (and does not throw) when a token has no price/route', async () => {
+        const { mm, pair } = makeMarketMaker();
+        // MBC priced at 0 -> missing route; must skip without dividing by zero
+        const result = await mm.determineTradeNecessity(
+            fakeJupiterClient({ [SOL_MINT_ADDRESS]: 100, [MBC_MINT_ADDRESS]: 0 }),
+            pair, new Decimal(2), new Decimal(100)
         );
         expect(result.tradeNeeded).toBe(false);
     });

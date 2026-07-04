@@ -44,7 +44,7 @@ async function main() {
         slippageBps: parseNumberEnv('MM_SLIPPAGE_BPS'),
         priceTolerance: parseNumberEnv('MM_PRICE_TOLERANCE'),
         rebalancePercentage: parseNumberEnv('MM_REBALANCE_PERCENTAGE'),
-        minimumTradeAmount: parseNumberEnv('MM_MINIMUM_TRADE_AMOUNT'),
+        minimumTradeValueUsd: parseNumberEnv('MM_MINIMUM_TRADE_VALUE_USD'),
     };
     const marketMaker = new MarketMaker(config);
     await marketMaker.runMM(jupiterClient, enabled);
