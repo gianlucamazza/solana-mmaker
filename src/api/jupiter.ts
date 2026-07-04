@@ -1,6 +1,28 @@
-import { Connection, Keypair, VersionedTransaction, BlockhashWithExpiryBlockHeight } from '@solana/web3.js';
+import { Connection, Keypair, VersionedTransaction } from '@solana/web3.js';
 import fetch from 'cross-fetch';
 import { transactionSenderAndConfirmationWaiter } from '../utils/transactionSender';
+
+const DEFAULT_BASE_URI = 'https://quote-api.jup.ag/v6';
+
+/**
+ * Relevant subset of the Jupiter /quote response.
+ */
+export interface QuoteResponse {
+    inputMint: string;
+    outputMint: string;
+    inAmount: string;
+    outAmount: string;
+    [key: string]: unknown;
+}
+
+/**
+ * Relevant subset of the Jupiter /swap response.
+ */
+export interface SwapResponse {
+    swapTransaction: string;
+    lastValidBlockHeight?: number;
+    [key: string]: unknown;
+}
 
 /**
  * Class for interacting with the Jupiter API to perform token swaps on the Solana blockchain.
@@ -12,9 +34,10 @@ export class JupiterClient {
      * Constructs a JupiterClient instance.
      * @param connection The Solana connection object.
      * @param userKeypair The user's Solana Keypair.
+     * @param baseUri Optional Jupiter API base URL (defaults to the public v6 endpoint).
      */
-    constructor(private connection: Connection, private userKeypair: Keypair) {
-        this.baseUri = 'https://quote-api.jup.ag/v6';
+    constructor(private connection: Connection, private userKeypair: Keypair, baseUri?: string) {
+        this.baseUri = baseUri || DEFAULT_BASE_URI;
     }
 
     /**
@@ -37,39 +60,38 @@ export class JupiterClient {
      * Retrieves a swap quote from the Jupiter API.
      * @param inputMint The address of the input token mint.
      * @param outputMint The address of the output token mint.
-     * @param amount The amount of input tokens to swap.
+     * @param amount The amount of input tokens to swap, in minor units.
      * @param slippageBps The maximum slippage allowed, in basis points.
      * @returns A promise that resolves to the swap quote.
      */
-    async getQuote(inputMint: string, outputMint: string, amount: string, slippageBps: number): Promise<any> {
+    async getQuote(inputMint: string, outputMint: string, amount: string, slippageBps: number): Promise<QuoteResponse> {
         console.log(`Getting quote for ${amount} ${inputMint} -> ${outputMint}`);
         const response = await fetch(
             `${this.baseUri}/quote?inputMint=${inputMint}&outputMint=${outputMint}&amount=${amount}&slippageBps=${slippageBps}`
         );
-        const quoteResponse = await response.json();
         if (!response.ok) {
-            console.error('Failed to get quote:', quoteResponse.error);
-            throw new Error(`Failed to get quote: ${quoteResponse.error}`);
+            const errorBody = await response.text();
+            throw new Error(`Failed to get quote (HTTP ${response.status}): ${errorBody}`);
         }
-        return quoteResponse;
+        return await response.json() as QuoteResponse;
     }
 
     /**
      * Retrieves a swap transaction from the Jupiter API.
      * @param quoteResponse The response from the getQuote method.
      * @param wrapAndUnwrapSol Whether to wrap and unwrap SOL if necessary.
+     * @param priorityFees An optional priority fee amount in lamports.
      * @param feeAccount An optional fee account address.
-     * @param priorityFees An optional priority fee amount in lamports (default in Solana : 100000).
-     * @returns A promise that resolves to the swap transaction.
+     * @returns A promise that resolves to the swap response (serialized transaction plus expiry metadata).
      */
-    async getSwapTransaction(quoteResponse: any, wrapAndUnwrapSol: boolean = true, priorityFees = 200000, feeAccount?: string): Promise<any> {
+    async getSwapTransaction(quoteResponse: QuoteResponse, wrapAndUnwrapSol: boolean = true, priorityFees = 200000, feeAccount?: string): Promise<SwapResponse> {
         const body = {
             quoteResponse,
             userPublicKey: this.userKeypair.publicKey.toString(),
             wrapAndUnwrapSol,
             ...(feeAccount && { feeAccount }),
-            ...(priorityFees !== undefined && { prioritizationFeeLamports: priorityFees }),
-            ...(priorityFees !== undefined && { dynamicComputeUnitLimit: true })
+            prioritizationFeeLamports: priorityFees,
+            dynamicComputeUnitLimit: true,
         };
 
         const response = await fetch(`${this.baseUri}/swap`, {
@@ -79,47 +101,50 @@ export class JupiterClient {
         });
 
         if (!response.ok) {
-            throw new Error('Failed to get swap transaction');
+            const errorBody = await response.text();
+            throw new Error(`Failed to get swap transaction (HTTP ${response.status}): ${errorBody}`);
         }
 
-        const { swapTransaction } = await response.json();
-        return swapTransaction;
+        const swapResponse = await response.json() as SwapResponse;
+        if (!swapResponse.swapTransaction) {
+            throw new Error('Jupiter /swap response did not contain a swapTransaction');
+        }
+        return swapResponse;
     }
 
     /**
      * Executes a swap transaction on the Solana blockchain.
-     * @param swapTransaction The swap transaction obtained from getSwapTransaction, encoded in base64.
+     * @param swapResponse The swap response obtained from getSwapTransaction.
      * @returns A promise that resolves to a boolean indicating whether the transaction was successfully confirmed.
      */
-    async executeSwap(swapTransaction: any): Promise<boolean> {
+    async executeSwap(swapResponse: SwapResponse): Promise<boolean> {
         try {
-            const swapTransactionBuf = Buffer.from(swapTransaction, 'base64');
-            let transaction = VersionedTransaction.deserialize(swapTransactionBuf);
+            const swapTransactionBuf = Buffer.from(swapResponse.swapTransaction, 'base64');
+            const transaction = VersionedTransaction.deserialize(swapTransactionBuf);
             transaction.sign([this.userKeypair]);
 
             const connection = this.getConnection();
 
-            // Retrieving the necessary data for `transactionSenderAndConfirmationWaiter`
-            const latestBlockhash = await connection.getLatestBlockhash();
-            const blockhashWithExpiryBlockHeight: BlockhashWithExpiryBlockHeight = {
-                blockhash: latestBlockhash.blockhash,
-                lastValidBlockHeight: latestBlockhash.lastValidBlockHeight,
-            };
+            // Track expiry against the blockhash embedded in the Jupiter transaction;
+            // a freshly fetched blockhash would make expiry detection unreliable.
+            const blockhash = transaction.message.recentBlockhash;
+            const lastValidBlockHeight = swapResponse.lastValidBlockHeight
+                ?? (await connection.getLatestBlockhash()).lastValidBlockHeight;
 
             const serializedTransaction = Buffer.from(transaction.serialize());
 
-            // Sending the transaction using `transactionSenderAndConfirmationWaiter`
             const confirmation = await transactionSenderAndConfirmationWaiter({
                 connection,
                 serializedTransaction,
-                blockhashWithExpiryBlockHeight,
+                blockhashWithExpiryBlockHeight: { blockhash, lastValidBlockHeight },
             });
 
             if (!confirmation) {
-                console.error("Swap transaction expired or failed.");
+                console.error('Swap transaction expired or failed.');
                 return false;
-            } else if (confirmation.meta && confirmation.meta.err) {
-                console.error("Swap transaction failed with error:", confirmation.meta.err);
+            }
+            if (confirmation.meta && confirmation.meta.err) {
+                console.error('Swap transaction failed with error:', confirmation.meta.err);
                 return false;
             }
 
@@ -129,23 +154,5 @@ export class JupiterClient {
             console.error('Failed to send swap transaction:', err);
             return false;
         }
-    }
-
-    /**
-     * Waits for a transaction to be confirmed on the Solana blockchain.
-     * @param txId The ID of the transaction to wait for.
-     * @param timeout The maximum time to wait for confirmation, in milliseconds. Defaults to 60000 ms.
-     * @returns A promise that resolves to a boolean indicating whether the transaction was confirmed within the timeout period.
-     */
-    async waitForTransactionConfirmation(txId: string, timeout = 60000): Promise<boolean> {
-        const startTime = Date.now();
-        while (Date.now() - startTime < timeout) {
-            const status = await this.connection.getSignatureStatus(txId);
-            if (status && status.value && status.value.confirmationStatus === 'finalized') {
-                return true;
-            }
-            await new Promise(resolve => setTimeout(resolve, 2000));
-        }
-        return false;
     }
 }

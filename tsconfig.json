@@ -10,17 +10,17 @@
         "resolveJsonModule": true,
         "skipLibCheck": true,
         "lib": [
-            "es6",
-            "dom"
+            "es2020"
         ],
         "sourceMap": true,
-        "declaration": true,
+        "declaration": true
     },
     "include": [
-        "src/**/*.ts",
-        "types/**/*.d.ts"
+        "src/**/*.ts"
     ],
     "exclude": [
-        "node_modules"
+        "node_modules",
+        "dist",
+        "tests"
     ]
 }
