@@ -17,8 +17,18 @@ const SEND_OPTIONS = {
   skipPreflight: true,
 };
 
-const MAX_PROCESS_DURATION_MS = 60000; // 60 seconds
+// 'finalized' can take 30s+ and regularly overruns the process timeout,
+// producing false "expired" results for transactions that actually landed.
+const CONFIRMATION_COMMITMENT = "confirmed" as const;
+const MAX_PROCESS_DURATION_MS = 60000;
+const RESEND_INTERVAL_MS = 2000;
+const STATUS_POLL_INTERVAL_MS = 5000;
 
+/**
+ * Sends a serialized transaction, keeps re-broadcasting it until it is
+ * confirmed or expires, and returns the confirmed transaction (or null when
+ * the transaction expired / could not be confirmed in time).
+ */
 export async function transactionSenderAndConfirmationWaiter({
   connection,
   serializedTransaction,
@@ -31,38 +41,14 @@ export async function transactionSenderAndConfirmationWaiter({
 
   const controller = new AbortController();
   const abortSignal = controller.signal;
-
-  const startTime = Date.now(); // Start the global process timer
+  const startTime = Date.now();
 
   try {
-    // Check if the transaction is immediately confirmed
-    const immediateConfirmation = await connection.confirmTransaction(
-      {
-        ...blockhashWithExpiryBlockHeight,
-        signature: txid,
-      },
-      "finalized"
-    );
-
-    if (immediateConfirmation.value.err) {
-      console.error("Transaction failed immediately:", immediateConfirmation.value.err);
-      return null;
-    }
-
-    // If the transaction is immediately confirmed, return the response
-    const response = await connection.getTransaction(txid, {
-      commitment: "finalized",
-      maxSupportedTransactionVersion: 0,
-    });
-
-    if (response) {
-      return response;
-    }
-
-    // If the transaction is not immediately confirmed, start retrying
+    // Periodically re-broadcast until confirmed or aborted; RPC nodes drop
+    // transactions under load, so a single send is not reliable.
     const abortableResender = async () => {
-      while (true) {
-        await sleep(2_000);
+      while (!abortSignal.aborted) {
+        await sleep(RESEND_INTERVAL_MS);
         if (abortSignal.aborted) return;
         try {
           await connection.sendRawTransaction(serializedTransaction, SEND_OPTIONS);
@@ -72,70 +58,62 @@ export async function transactionSenderAndConfirmationWaiter({
       }
     };
 
-    abortableResender();
-
-    const lastValidBlockHeight =
-      blockhashWithExpiryBlockHeight.lastValidBlockHeight - 150;
+    abortableResender().catch((e) => console.warn(`Transaction resender stopped: ${e}`));
 
     await Promise.race([
       connection.confirmTransaction(
         {
           ...blockhashWithExpiryBlockHeight,
-          lastValidBlockHeight,
           signature: txid,
           abortSignal,
         },
-        "finalized"
+        CONFIRMATION_COMMITMENT
       ),
-      new Promise(async (resolve) => {
+      (async () => {
+        // Backstop poller: settles the race on timeout even if
+        // confirmTransaction hangs (e.g. websocket issues).
         while (!abortSignal.aborted) {
-          await sleep(5_000);
-          const elapsedTime = Date.now() - startTime;
-          if (elapsedTime > MAX_PROCESS_DURATION_MS) {
-            console.warn("Total process time exceeded");
-            break; // Stop the loop if the maximum duration is reached
+          await sleep(STATUS_POLL_INTERVAL_MS);
+          if (Date.now() - startTime > MAX_PROCESS_DURATION_MS) {
+            console.warn("Transaction confirmation timed out");
+            return;
           }
-          const tx = await connection.getSignatureStatus(txid, {
+          const status = await connection.getSignatureStatus(txid, {
             searchTransactionHistory: false,
           });
-          if (tx?.value?.confirmationStatus === "finalized") {
-            resolve(tx);
-            break; // Stop the loop if the transaction is finalized
+          const confirmationStatus = status?.value?.confirmationStatus;
+          if (confirmationStatus === "confirmed" || confirmationStatus === "finalized") {
+            return;
           }
         }
-      }),
+      })(),
     ]);
   } catch (e) {
     if (e instanceof TransactionExpiredBlockheightExceededError) {
-      return null; // Return null if the transaction has expired
-    } else {
-      throw e; // Throw an exception for other errors
+      return null;
     }
+    throw e;
   } finally {
     controller.abort();
   }
 
-  // Retrieve the final response after confirmation
+  // getTransaction can lag confirmation, so retry a few times before giving up.
   const response = await promiseRetry(
     async (retry) => {
-      const elapsedTime = Date.now() - startTime;
-      if (elapsedTime > MAX_PROCESS_DURATION_MS) {
-        throw new Error("Maximum process duration exceeded during retry");
-      }
-      const response = await connection.getTransaction(txid, {
-        commitment: "finalized",
+      const tx = await connection.getTransaction(txid, {
+        commitment: CONFIRMATION_COMMITMENT,
         maxSupportedTransactionVersion: 0,
       });
-      if (!response) {
-        retry(response);
+      if (!tx) {
+        retry(new Error(`Transaction ${txid} not found yet`));
       }
-      return response;
+      return tx;
     },
     {
       retries: 5,
       minTimeout: 3e3,
     }
-  );
+  ).catch(() => null);
 
   return response;
 }

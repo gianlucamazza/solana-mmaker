@@ -1,17 +1,18 @@
 # Solana Market Maker Bot
 
-This project is a Solana Market Maker Bot designed to automate trading strategies on the Solana blockchain using the Jupiter swap protocol. It implements a 50/50 portfolio rebalancing strategy between SOL and SPL tokens, automatically executing trades to maintain balance when price fluctuations create imbalances.
+This project is a Solana Market Maker Bot designed to automate trading strategies on the Solana blockchain using the Jupiter swap protocol. It implements a portfolio rebalancing strategy between SOL and SPL tokens (50/50 by default), automatically executing trades to restore the target balance when price fluctuations create imbalances.
 
 ## Features
 
-- **Automatic Portfolio Rebalancing**: Maintains a 50/50 value balance between token pairs
+- **Automatic Portfolio Rebalancing**: Maintains a configurable value balance between token pairs (default 50/50)
 - **Jupiter Integration**: Uses Jupiter Aggregator for optimal swap execution
-- **Price Tolerance**: Default 2% tolerance before triggering rebalance
+- **Price Tolerance**: Rebalances only when the imbalance exceeds a configurable share of the portfolio (default 2%)
 - **Slippage Protection**: Default 0.5% (50 bps) maximum slippage
 - **Priority Fees**: Includes 200,000 lamport priority fees for faster transaction confirmation
-- **BIP39 Wallet Support**: Generate keypairs from mnemonics or load from file
-- **Robust Transaction Handling**: Includes retry logic and confirmation timeouts
-- **Simulation Mode**: Test strategies without executing actual trades
+- **BIP39 Wallet Support**: Load keypairs from a file or derive them from a mnemonic
+- **Robust Transaction Handling**: Re-broadcasts transactions until confirmed, with expiry tracking and timeouts
+- **Fault Tolerance**: A failed RPC/API call skips the cycle instead of crashing the bot
+- **Simulation Mode**: Test strategies without executing actual trades (`ENABLE_TRADING=false`)
 
 ## Project Structure
 
@@ -19,22 +20,28 @@ This project is a Solana Market Maker Bot designed to automate trading strategie
 .
 ├── package.json
 ├── package-lock.json
+├── tsconfig.json
+├── eslint.config.mjs
+├── .env.example                # Template for environment configuration
+├── .github
+│   └── workflows/ci.yml        # CI: build, lint, test
 ├── src
 │   ├── api
 │   │   ├── jupiter.ts          # Jupiter API client with quote and swap functionality
-│   │   └── solana.ts           # Solana connection management
+│   │   └── solana.ts           # Solana connection management and mint helpers
 │   ├── constants
-│   │   └── constants.ts        # Token addresses and network configuration
+│   │   └── constants.ts        # Token mint addresses
 │   ├── main.ts                 # Entry point and setup
 │   ├── strategies
-│   │   └── basicMM.ts          # 50/50 market-making strategy implementation
+│   │   └── basicMM.ts          # Rebalancing market-making strategy implementation
 │   ├── utils
-│   │   ├── convert.ts          # Token unit conversion utilities
-│   │   ├── getSignature.ts     # Transaction signature handling
+│   │   ├── convert.ts          # Token unit conversion utilities (Decimal-based)
 │   │   ├── transactionSender.ts # Robust transaction submission with retry logic
 │   │   └── sleep.ts            # Asynchronous sleep utility
 │   └── wallet.ts               # Keypair loading from file or mnemonic
-└── tsconfig.json
+└── tests                       # Vitest unit tests
+    ├── basicMM.test.ts
+    └── convert.test.ts
 ```
 
 ## Requirements
@@ -54,14 +61,27 @@ This project is a Solana Market Maker Bot designed to automate trading strategie
     ```bash
     npm install
     ```
-4. Environment Variables: Create a `.env` file in the project root:
+4. Environment Variables: Copy `.env.example` to `.env` and fill in your values:
+    ```bash
+    cp .env.example .env
     ```
-    SOLANA_RPC_ENDPOINT=<Your Solana RPC endpoint URL>
-    USER_KEYPAIR=<Path to your Solana wallet keypair file>
-    SOLANA_MNEMONIC=<Your bip39 compatible mnemonic>
-    ENABLE_TRADING=<true or false>
-    ```
-    Either `USER_KEYPAIR` or `SOLANA_MNEMONIC` is required, not both.
+
+### Environment Variables
+
+| Variable | Required | Description |
+| --- | --- | --- |
+| `SOLANA_RPC_ENDPOINT` | yes | Solana RPC endpoint URL |
+| `USER_KEYPAIR` | no* | Path to a JSON secret-key file (solana-keygen format) |
+| `SOLANA_MNEMONIC` | no* | BIP39 mnemonic to derive the keypair from |
+| `ENABLE_TRADING` | no | `true` to execute real swaps; anything else runs in simulation mode |
+| `JUPITER_API_BASE_URL` | no | Override the Jupiter API base URL (default: `https://quote-api.jup.ag/v6`) |
+| `MM_WAIT_TIME_MS` | no | Milliseconds between rebalance checks (default: `60000`) |
+| `MM_SLIPPAGE_BPS` | no | Maximum slippage in basis points (default: `50`) |
+| `MM_PRICE_TOLERANCE` | no | Portfolio imbalance fraction required to trigger a rebalance (default: `0.02`) |
+| `MM_REBALANCE_PERCENTAGE` | no | Target share of total value held in the first token (default: `0.5`) |
+| `MM_MINIMUM_TRADE_AMOUNT` | no | Minimum token amount for a trade to be executed (default: `0.01`) |
+
+\* Keypair resolution order: `USER_KEYPAIR` file → `SOLANA_MNEMONIC` → `~/.config/solana/id.json`. Set at most one of the two variables.
 
 ## Running the Bot
 
@@ -78,22 +98,33 @@ npm run build
 npm start
 ```
 
+## Testing and Linting
+
+```bash
+npm test       # Vitest unit tests
+npm run lint   # ESLint over src and tests
+```
+
 ## Configuration Options
 
-The following parameters can be adjusted in the `MarketMaker` class constructor:
+The strategy parameters can be set through the `MM_*` environment variables above, or programmatically via the `MarketMaker` constructor:
 
-- `waitTime`: Time between rebalance checks (default: 60000ms)
-- `slippageBps`: Maximum slippage tolerance in basis points (default: 50 bps or 0.5%)
-- `priceTolerance`: Threshold for triggering rebalance (default: 0.02 or 2%)
-- `rebalancePercentage`: Target portfolio balance ratio (default: 0.5 or 50/50)
-- `minimumTradeAmount`: Minimum amount to trade (default: 0.01 tokens)
+```ts
+const marketMaker = new MarketMaker({
+    waitTime: 60000,            // ms between rebalance checks
+    slippageBps: 50,            // max slippage in basis points
+    priceTolerance: 0.02,       // imbalance fraction that triggers a rebalance
+    rebalancePercentage: 0.5,   // target share of value in the first token
+    minimumTradeAmount: 0.01,   // minimum token amount worth trading
+});
+```
 
 ## Customizing Trading Pairs
 
-The bot is designed to work with any SPL token pair. To modify the trading pairs:
+To change the traded pair:
 
-1. Add your token mint addresses to the `constants.ts` file
-2. Update the token configuration in the `MarketMaker` constructor
+1. Add your token mint addresses to `src/constants/constants.ts`
+2. Update the token configuration in the `MarketMaker` constructor (`src/strategies/basicMM.ts`); SPL token decimals are verified on-chain at startup
 3. Ensure you have balances of both tokens in your wallet
 
 ## Safety and Security
@@ -101,7 +132,7 @@ The bot is designed to work with any SPL token pair. To modify the trading pairs
 - Always review the strategy and start with small amounts for testing
 - Use a dedicated wallet with only the tokens you intend to trade
 - The bot uses priority fees to ensure transactions confirm quickly
-- All sensitive information is stored in environment variables
+- All sensitive information is stored in environment variables; keys and mnemonics are never logged
 - Transaction timeout protection prevents hanging on failed transactions
 
 ## Contribution
