@@ -11,7 +11,8 @@ This project is a Solana Market Maker Bot designed to automate trading strategie
 - **Priority Fees**: Includes 200,000 lamport priority fees for faster transaction confirmation
 - **BIP39 Wallet Support**: Load keypairs from a file or derive them from a mnemonic
 - **Robust Transaction Handling**: Re-broadcasts transactions until confirmed, with expiry tracking and timeouts
-- **Fault Tolerance**: A failed RPC/API call skips the cycle instead of crashing the bot
+- **Fault Tolerance**: A failed RPC/API call skips the cycle instead of crashing the bot; Jupiter requests retry with exponential backoff on rate-limits/5xx
+- **Graceful Shutdown**: `SIGINT`/`SIGTERM` stop the bot after the current cycle
 - **Simulation Mode**: Test strategies without executing actual trades (`ENABLE_TRADING=false`)
 
 ## Project Structure

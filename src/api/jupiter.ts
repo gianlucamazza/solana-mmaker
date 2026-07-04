@@ -1,8 +1,34 @@
 import { Connection, Keypair, VersionedTransaction } from '@solana/web3.js';
 import fetch from 'cross-fetch';
+import promiseRetry from 'promise-retry';
 import { transactionSenderAndConfirmationWaiter } from '../utils/transactionSender';
 
 const DEFAULT_BASE_URI = 'https://quote-api.jup.ag/v6';
+
+type FetchResponse = Awaited<ReturnType<typeof fetch>>;
+
+/**
+ * fetch with exponential backoff on transient failures (network errors, HTTP
+ * 429 and 5xx). The public Jupiter endpoint rate-limits under load, so a single
+ * attempt is not reliable. 4xx (other than 429) are returned as-is to the caller.
+ */
+async function fetchWithRetry(url: string, init?: Parameters<typeof fetch>[1]): Promise<FetchResponse> {
+    return promiseRetry(
+        async (retry) => {
+            let response: FetchResponse;
+            try {
+                response = await fetch(url, init);
+            } catch (err) {
+                return retry(err);
+            }
+            if (response.status === 429 || response.status >= 500) {
+                return retry(new Error(`Jupiter API transient error (HTTP ${response.status})`));
+            }
+            return response;
+        },
+        { retries: 4, minTimeout: 500, factor: 2 }
+    );
+}
 
 /**
  * Relevant subset of the Jupiter /quote response.
@@ -81,7 +107,7 @@ export class JupiterClient {
      */
     async getQuote(inputMint: string, outputMint: string, amount: string, slippageBps: number): Promise<QuoteResponse> {
         console.log(`Getting quote for ${amount} ${inputMint} -> ${outputMint}`);
-        const response = await fetch(
+        const response = await fetchWithRetry(
             `${this.baseUri}/quote?inputMint=${inputMint}&outputMint=${outputMint}&amount=${amount}&slippageBps=${slippageBps}`
         );
         if (!response.ok) {
@@ -109,7 +135,7 @@ export class JupiterClient {
             dynamicComputeUnitLimit: true,
         };
 
-        const response = await fetch(`${this.baseUri}/swap`, {
+        const response = await fetchWithRetry(`${this.baseUri}/swap`, {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify(body)

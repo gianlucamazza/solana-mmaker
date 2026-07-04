@@ -55,6 +55,15 @@ async function main() {
         minimumTradeValueUsd: parseNumberEnv('MM_MINIMUM_TRADE_VALUE_USD'),
     };
     const marketMaker = new MarketMaker(config);
+
+    // Graceful shutdown: stop the run loop after the current cycle.
+    for (const signal of ['SIGINT', 'SIGTERM'] as const) {
+        process.once(signal, () => {
+            console.log(`Received ${signal}, shutting down...`);
+            marketMaker.stop();
+        });
+    }
+
     await marketMaker.runMM(jupiterClient, enabled);
 }
 

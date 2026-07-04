@@ -82,6 +82,7 @@ export class MarketMaker {
     priceTolerance: number;
     rebalancePercentage: number;
     minimumTradeValueUsd: Decimal;
+    private running: boolean = true;
 
     /**
      * Initializes a new instance of the MarketMaker class.
@@ -110,8 +111,9 @@ export class MarketMaker {
         const tradePairs: TradePair[] = [{ token0: this.solToken, token1: this.mbcToken }];
         await this.syncTokenDecimals(jupiterClient.getConnection());
 
-        while (true) {
+        while (this.running) {
             for (const pair of tradePairs) {
+                if (!this.running) break;
                 try {
                     await this.evaluateAndExecuteTrade(jupiterClient, pair, enableTrading);
                 } catch (err) {
@@ -122,8 +124,21 @@ export class MarketMaker {
                 }
             }
 
+            if (!this.running) break;
             console.log(`Waiting for ${this.waitTime / 1000} seconds...`);
             await sleep(this.waitTime);
+        }
+
+        console.log('Market maker stopped.');
+    }
+
+    /**
+     * Request a graceful shutdown: the run loop exits after the current cycle.
+     */
+    stop(): void {
+        if (this.running) {
+            console.log('Shutdown requested; finishing the current cycle...');
+            this.running = false;
         }
     }
 
