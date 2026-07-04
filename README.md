@@ -11,7 +11,8 @@ This project is a Solana Market Maker Bot designed to automate trading strategie
 - **Priority Fees**: Includes 200,000 lamport priority fees for faster transaction confirmation
 - **BIP39 Wallet Support**: Load keypairs from a file or derive them from a mnemonic
 - **Robust Transaction Handling**: Re-broadcasts transactions until confirmed, with expiry tracking and timeouts
-- **Fault Tolerance**: A failed RPC/API call skips the cycle instead of crashing the bot
+- **Fault Tolerance**: A failed RPC/API call skips the cycle instead of crashing the bot; Jupiter requests retry with exponential backoff on rate-limits/5xx
+- **Graceful Shutdown**: `SIGINT`/`SIGTERM` stop the bot after the current cycle
 - **Simulation Mode**: Test strategies without executing actual trades (`ENABLE_TRADING=false`)
 
 ## Project Structure
@@ -79,7 +80,9 @@ This project is a Solana Market Maker Bot designed to automate trading strategie
 | `MM_SLIPPAGE_BPS` | no | Maximum slippage in basis points (default: `50`) |
 | `MM_PRICE_TOLERANCE` | no | Portfolio imbalance fraction required to trigger a rebalance (default: `0.02`) |
 | `MM_REBALANCE_PERCENTAGE` | no | Target share of total value held in the first token (default: `0.5`) |
-| `MM_MINIMUM_TRADE_AMOUNT` | no | Minimum token amount for a trade to be executed (default: `0.01`) |
+| `MM_MINIMUM_TRADE_VALUE_USD` | no | Minimum trade value in USD for a rebalance to be executed (default: `1`) |
+| `MM_PRIORITY_FEE_LAMPORTS` | no | Priority fee in lamports attached to swaps (default: `200000`) |
+| `MM_SKIP_PREFLIGHT` | no | `true` to skip RPC preflight simulation when sending swaps (default: `false`) |
 
 \* Keypair resolution order: `USER_KEYPAIR` file → `SOLANA_MNEMONIC` → `~/.config/solana/id.json`. Set at most one of the two variables.
 
@@ -115,7 +118,7 @@ const marketMaker = new MarketMaker({
     slippageBps: 50,            // max slippage in basis points
     priceTolerance: 0.02,       // imbalance fraction that triggers a rebalance
     rebalancePercentage: 0.5,   // target share of value in the first token
-    minimumTradeAmount: 0.01,   // minimum token amount worth trading
+    minimumTradeValueUsd: 1,    // minimum trade value in USD worth executing
 });
 ```
 

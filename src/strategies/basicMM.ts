@@ -7,6 +7,12 @@ import { SOL_MINT_ADDRESS, MBC_MINT_ADDRESS, USDC_MINT_ADDRESS } from '../consta
 import { fromNumberToLamports } from '../utils/convert';
 import { sleep } from '../utils/sleep';
 
+/**
+ * Slippage used only for *pricing* quotes. Kept at 0 so the portfolio valuation
+ * reflects a clean quote price and is not polluted by the execution slippage.
+ */
+const PRICE_QUOTE_SLIPPAGE_BPS = 0;
+
 export interface Token {
     address: string;
     symbol: string;
@@ -27,8 +33,41 @@ export interface MarketMakerConfig {
     priceTolerance?: number;
     /** Target share of total value held in token0. Default: 0.5 (50/50). */
     rebalancePercentage?: number;
-    /** Minimum token amount for a trade to be worth executing. Default: 0.01. */
-    minimumTradeAmount?: number;
+    /** Minimum trade value in USD for a rebalance to be worth executing. Default: 1. */
+    minimumTradeValueUsd?: number;
+}
+
+/**
+ * Throw if `value` is outside `(min, max)` (exclusive) — used for fraction parameters.
+ */
+function assertFraction(name: string, value: number): void {
+    if (!Number.isFinite(value) || value <= 0 || value >= 1) {
+        throw new Error(`${name} must be a number in the open interval (0, 1), got ${value}`);
+    }
+}
+
+/**
+ * Validate the strategy parameters, failing fast on values that would make the
+ * bot trade unsafely (e.g. a rebalance target above 100% or a negative slippage).
+ */
+function validateStrategyConfig(params: {
+    waitTime: number;
+    slippageBps: number;
+    priceTolerance: number;
+    rebalancePercentage: number;
+    minimumTradeValueUsd: Decimal;
+}): void {
+    if (!Number.isInteger(params.slippageBps) || params.slippageBps < 1 || params.slippageBps > 1000) {
+        throw new Error(`slippageBps must be an integer in [1, 1000] bps, got ${params.slippageBps}`);
+    }
+    assertFraction('rebalancePercentage', params.rebalancePercentage);
+    assertFraction('priceTolerance', params.priceTolerance);
+    if (!params.minimumTradeValueUsd.isFinite() || params.minimumTradeValueUsd.lte(0)) {
+        throw new Error(`minimumTradeValueUsd must be > 0, got ${params.minimumTradeValueUsd.toString()}`);
+    }
+    if (!Number.isFinite(params.waitTime) || params.waitTime < 1000) {
+        throw new Error(`waitTime must be >= 1000 ms, got ${params.waitTime}`);
+    }
 }
 
 /**
@@ -42,7 +81,8 @@ export class MarketMaker {
     slippageBps: number;
     priceTolerance: number;
     rebalancePercentage: number;
-    minimumTradeAmount: Decimal;
+    minimumTradeValueUsd: Decimal;
+    private running: boolean = true;
 
     /**
      * Initializes a new instance of the MarketMaker class.
@@ -56,7 +96,9 @@ export class MarketMaker {
         this.slippageBps = config.slippageBps ?? 50; // 0.5%
         this.priceTolerance = config.priceTolerance ?? 0.02; // 2%
         this.rebalancePercentage = config.rebalancePercentage ?? 0.5; // 50%
-        this.minimumTradeAmount = new Decimal(config.minimumTradeAmount ?? 0.01);
+        this.minimumTradeValueUsd = new Decimal(config.minimumTradeValueUsd ?? 1); // $1
+
+        validateStrategyConfig(this);
     }
 
     /**
@@ -69,18 +111,34 @@ export class MarketMaker {
         const tradePairs: TradePair[] = [{ token0: this.solToken, token1: this.mbcToken }];
         await this.syncTokenDecimals(jupiterClient.getConnection());
 
-        while (true) {
+        while (this.running) {
             for (const pair of tradePairs) {
+                if (!this.running) break;
                 try {
                     await this.evaluateAndExecuteTrade(jupiterClient, pair, enableTrading);
                 } catch (err) {
                     // A transient RPC/API failure must not kill the bot; retry on the next cycle.
-                    console.error(`Rebalance iteration for ${pair.token0.symbol}/${pair.token1.symbol} failed:`, err);
+                    // Missing-price/route conditions are handled explicitly in
+                    // determineTradeNecessity, so anything reaching here is an unexpected error.
+                    console.error(`Rebalance iteration for ${pair.token0.symbol}/${pair.token1.symbol} failed unexpectedly:`, err);
                 }
             }
 
+            if (!this.running) break;
             console.log(`Waiting for ${this.waitTime / 1000} seconds...`);
             await sleep(this.waitTime);
+        }
+
+        console.log('Market maker stopped.');
+    }
+
+    /**
+     * Request a graceful shutdown: the run loop exits after the current cycle.
+     */
+    stop(): void {
+        if (this.running) {
+            console.log('Shutdown requested; finishing the current cycle...');
+            this.running = false;
         }
     }
 
@@ -169,6 +227,21 @@ export class MarketMaker {
         const token0Price = await this.getUSDValue(jupiterClient, pair.token0);
         const token1Price = await this.getUSDValue(jupiterClient, pair.token1);
 
+        let solAmountToTrade = new Decimal(0);
+        let mbcAmountToTrade = new Decimal(0);
+        let tradeNeeded = false;
+
+        // Without a valid price for both tokens the portfolio cannot be valued.
+        // Surface this explicitly and skip, instead of dividing by zero / letting
+        // the generic catch in runMM swallow it silently every cycle.
+        if (token0Price.lte(0) || token1Price.lte(0)) {
+            console.warn(
+                `Skipping ${pair.token0.symbol}/${pair.token1.symbol}: missing price/route ` +
+                `(${pair.token0.symbol}=${token0Price.toString()}, ${pair.token1.symbol}=${token1Price.toString()})`
+            );
+            return { tradeNeeded, solAmountToTrade, mbcAmountToTrade };
+        }
+
         const token0Value = token0Balance.mul(token0Price);
         const token1Value = token1Balance.mul(token1Price);
 
@@ -177,26 +250,27 @@ export class MarketMaker {
         const targetToken1Value = totalPortfolioValue.sub(targetToken0Value);
         const toleranceValue = totalPortfolioValue.mul(this.priceTolerance);
 
-        let solAmountToTrade = new Decimal(0);
-        let mbcAmountToTrade = new Decimal(0);
-        let tradeNeeded = false;
-
         console.log(`${pair.token0.symbol} value: ${token0Value.toString()}`);
         console.log(`${pair.token1.symbol} value: ${token1Value.toString()}`);
 
+        let tradeValueUsd = new Decimal(0);
         if (token0Value.sub(targetToken0Value).gt(toleranceValue)) {
             // token0 is overweight beyond the tolerance: sell the surplus for token1
             const valueDiff = token0Value.sub(targetToken0Value);
             solAmountToTrade = valueDiff.div(token0Price);
+            tradeValueUsd = valueDiff;
             tradeNeeded = true;
         } else if (token1Value.sub(targetToken1Value).gt(toleranceValue)) {
             // token1 is overweight beyond the tolerance: sell the surplus for token0
             const valueDiff = token1Value.sub(targetToken1Value);
             mbcAmountToTrade = valueDiff.div(token1Price);
+            tradeValueUsd = valueDiff;
             tradeNeeded = true;
         }
 
-        if (solAmountToTrade.lt(this.minimumTradeAmount) && mbcAmountToTrade.lt(this.minimumTradeAmount)) {
+        // Compare the trade value in USD (not raw token amounts, which are not
+        // comparable across tokens) against the minimum trade value.
+        if (tradeNeeded && tradeValueUsd.lt(this.minimumTradeValueUsd)) {
             tradeNeeded = false;
         }
 
@@ -229,8 +303,12 @@ export class MarketMaker {
      */
     async getSPLTokenBalance(connection: Connection, walletAddress: PublicKey, tokenMintAddress: PublicKey): Promise<Decimal> {
         const accounts = await connection.getParsedTokenAccountsByOwner(walletAddress, { programId: TOKEN_PROGRAM_ID });
-        const accountInfo = accounts.value.find((account) => account.account.data.parsed.info.mint === tokenMintAddress.toBase58());
-        return accountInfo ? new Decimal(accountInfo.account.data.parsed.info.tokenAmount.amount) : new Decimal(0);
+        const mint = tokenMintAddress.toBase58();
+        // A wallet can hold several token accounts for the same mint (ATA + legacy/extra);
+        // sum them all instead of taking only the first match.
+        return accounts.value
+            .filter((account) => account.account.data.parsed.info.mint === mint)
+            .reduce((total, account) => total.add(new Decimal(account.account.data.parsed.info.tokenAmount.amount)), new Decimal(0));
     }
 
     /**
@@ -240,7 +318,11 @@ export class MarketMaker {
      * @returns USD value of one token unit as a Decimal.
      */
     async getUSDValue(jupiterClient: JupiterClient, token: Token): Promise<Decimal> {
-        const quote = await jupiterClient.getQuote(token.address, this.usdcToken.address, fromNumberToLamports(1, token.decimals), this.slippageBps);
+        // Use a dedicated pricing slippage (0), not the execution slippage, so the
+        // valuation is not skewed by the slippage the bot tolerates when trading.
+        // NOTE: this samples 1 unit and so ignores the price-impact of the real
+        // trade size; a future improvement is Jupiter's dedicated Price API.
+        const quote = await jupiterClient.getQuote(token.address, this.usdcToken.address, fromNumberToLamports(1, token.decimals), PRICE_QUOTE_SLIPPAGE_BPS);
         return new Decimal(quote.outAmount).div(new Decimal(10).pow(this.usdcToken.decimals));
     }
 }

@@ -36,7 +36,15 @@ async function main() {
     console.log(`Network: ${connection.rpcEndpoint}`);
     const userKeypair = loadKeypair();
     console.log('MarketMaker PubKey:', userKeypair.publicKey.toBase58());
-    const jupiterClient = new JupiterClient(connection, userKeypair, process.env.JUPITER_API_BASE_URL);
+
+    const priorityFees = parseNumberEnv('MM_PRIORITY_FEE_LAMPORTS') ?? 200000;
+    if (!Number.isInteger(priorityFees) || priorityFees < 0) {
+        throw new Error(`MM_PRIORITY_FEE_LAMPORTS must be a non-negative integer, got ${priorityFees}`);
+    }
+    const jupiterClient = new JupiterClient(connection, userKeypair, process.env.JUPITER_API_BASE_URL, {
+        priorityFees,
+        skipPreflight: process.env.MM_SKIP_PREFLIGHT === 'true',
+    });
 
     const enabled = process.env.ENABLE_TRADING === 'true';
     const config: MarketMakerConfig = {
@@ -44,9 +52,18 @@ async function main() {
         slippageBps: parseNumberEnv('MM_SLIPPAGE_BPS'),
         priceTolerance: parseNumberEnv('MM_PRICE_TOLERANCE'),
         rebalancePercentage: parseNumberEnv('MM_REBALANCE_PERCENTAGE'),
-        minimumTradeAmount: parseNumberEnv('MM_MINIMUM_TRADE_AMOUNT'),
+        minimumTradeValueUsd: parseNumberEnv('MM_MINIMUM_TRADE_VALUE_USD'),
     };
     const marketMaker = new MarketMaker(config);
+
+    // Graceful shutdown: stop the run loop after the current cycle.
+    for (const signal of ['SIGINT', 'SIGTERM'] as const) {
+        process.once(signal, () => {
+            console.log(`Received ${signal}, shutting down...`);
+            marketMaker.stop();
+        });
+    }
+
     await marketMaker.runMM(jupiterClient, enabled);
 }
 
