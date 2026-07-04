@@ -36,7 +36,15 @@ async function main() {
     console.log(`Network: ${connection.rpcEndpoint}`);
     const userKeypair = loadKeypair();
     console.log('MarketMaker PubKey:', userKeypair.publicKey.toBase58());
-    const jupiterClient = new JupiterClient(connection, userKeypair, process.env.JUPITER_API_BASE_URL);
+
+    const priorityFees = parseNumberEnv('MM_PRIORITY_FEE_LAMPORTS') ?? 200000;
+    if (!Number.isInteger(priorityFees) || priorityFees < 0) {
+        throw new Error(`MM_PRIORITY_FEE_LAMPORTS must be a non-negative integer, got ${priorityFees}`);
+    }
+    const jupiterClient = new JupiterClient(connection, userKeypair, process.env.JUPITER_API_BASE_URL, {
+        priorityFees,
+        skipPreflight: process.env.MM_SKIP_PREFLIGHT === 'true',
+    });
 
     const enabled = process.env.ENABLE_TRADING === 'true';
     const config: MarketMakerConfig = {

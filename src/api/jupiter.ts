@@ -27,17 +27,32 @@ export interface SwapResponse {
 /**
  * Class for interacting with the Jupiter API to perform token swaps on the Solana blockchain.
  */
+/**
+ * Optional execution parameters for the Jupiter client.
+ */
+export interface JupiterClientOptions {
+    /** Priority fee in lamports attached to swap transactions. Default: 200000. */
+    priorityFees?: number;
+    /** Skip RPC preflight simulation when sending swaps. Default: false. */
+    skipPreflight?: boolean;
+}
+
 export class JupiterClient {
     baseUri: string;
+    priorityFees: number;
+    skipPreflight: boolean;
 
     /**
      * Constructs a JupiterClient instance.
      * @param connection The Solana connection object.
      * @param userKeypair The user's Solana Keypair.
      * @param baseUri Optional Jupiter API base URL (defaults to the public v6 endpoint).
+     * @param options Optional execution parameters (priority fees, preflight).
      */
-    constructor(private connection: Connection, private userKeypair: Keypair, baseUri?: string) {
+    constructor(private connection: Connection, private userKeypair: Keypair, baseUri?: string, options: JupiterClientOptions = {}) {
         this.baseUri = baseUri || DEFAULT_BASE_URI;
+        this.priorityFees = options.priorityFees ?? 200000;
+        this.skipPreflight = options.skipPreflight ?? false;
     }
 
     /**
@@ -84,7 +99,7 @@ export class JupiterClient {
      * @param feeAccount An optional fee account address.
      * @returns A promise that resolves to the swap response (serialized transaction plus expiry metadata).
      */
-    async getSwapTransaction(quoteResponse: QuoteResponse, wrapAndUnwrapSol: boolean = true, priorityFees = 200000, feeAccount?: string): Promise<SwapResponse> {
+    async getSwapTransaction(quoteResponse: QuoteResponse, wrapAndUnwrapSol: boolean = true, priorityFees: number = this.priorityFees, feeAccount?: string): Promise<SwapResponse> {
         const body = {
             quoteResponse,
             userPublicKey: this.userKeypair.publicKey.toString(),
@@ -137,6 +152,7 @@ export class JupiterClient {
                 connection,
                 serializedTransaction,
                 blockhashWithExpiryBlockHeight: { blockhash, lastValidBlockHeight },
+                skipPreflight: this.skipPreflight,
             });
 
             if (!confirmation) {

@@ -80,6 +80,8 @@ This project is a Solana Market Maker Bot designed to automate trading strategie
 | `MM_PRICE_TOLERANCE` | no | Portfolio imbalance fraction required to trigger a rebalance (default: `0.02`) |
 | `MM_REBALANCE_PERCENTAGE` | no | Target share of total value held in the first token (default: `0.5`) |
 | `MM_MINIMUM_TRADE_VALUE_USD` | no | Minimum trade value in USD for a rebalance to be executed (default: `1`) |
+| `MM_PRIORITY_FEE_LAMPORTS` | no | Priority fee in lamports attached to swaps (default: `200000`) |
+| `MM_SKIP_PREFLIGHT` | no | `true` to skip RPC preflight simulation when sending swaps (default: `false`) |
 
 \* Keypair resolution order: `USER_KEYPAIR` file → `SOLANA_MNEMONIC` → `~/.config/solana/id.json`. Set at most one of the two variables.
 

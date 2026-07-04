@@ -11,10 +11,8 @@ type TransactionSenderAndConfirmationWaiterArgs = {
   connection: Connection;
   serializedTransaction: Buffer;
   blockhashWithExpiryBlockHeight: BlockhashWithExpiryBlockHeight;
-};
-
-const SEND_OPTIONS = {
-  skipPreflight: true,
+  /** Skip RPC preflight simulation. Default false = simulate before broadcast. */
+  skipPreflight?: boolean;
 };
 
 // 'finalized' can take 30s+ and regularly overruns the process timeout,
@@ -33,10 +31,12 @@ export async function transactionSenderAndConfirmationWaiter({
   connection,
   serializedTransaction,
   blockhashWithExpiryBlockHeight,
+  skipPreflight = false,
 }: TransactionSenderAndConfirmationWaiterArgs): Promise<VersionedTransactionResponse | null> {
+  const sendOptions = { skipPreflight };
   const txid = await connection.sendRawTransaction(
     serializedTransaction,
-    SEND_OPTIONS
+    sendOptions
   );
 
   const controller = new AbortController();
@@ -51,7 +51,7 @@ export async function transactionSenderAndConfirmationWaiter({
         await sleep(RESEND_INTERVAL_MS);
         if (abortSignal.aborted) return;
         try {
-          await connection.sendRawTransaction(serializedTransaction, SEND_OPTIONS);
+          await connection.sendRawTransaction(serializedTransaction, sendOptions);
         } catch (e) {
           console.warn(`Failed to resend transaction: ${e}`);
         }
