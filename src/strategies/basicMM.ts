@@ -32,6 +32,39 @@ export interface MarketMakerConfig {
 }
 
 /**
+ * Throw if `value` is outside `(min, max)` (exclusive) — used for fraction parameters.
+ */
+function assertFraction(name: string, value: number): void {
+    if (!Number.isFinite(value) || value <= 0 || value >= 1) {
+        throw new Error(`${name} must be a number in the open interval (0, 1), got ${value}`);
+    }
+}
+
+/**
+ * Validate the strategy parameters, failing fast on values that would make the
+ * bot trade unsafely (e.g. a rebalance target above 100% or a negative slippage).
+ */
+function validateStrategyConfig(params: {
+    waitTime: number;
+    slippageBps: number;
+    priceTolerance: number;
+    rebalancePercentage: number;
+    minimumTradeAmount: Decimal;
+}): void {
+    if (!Number.isInteger(params.slippageBps) || params.slippageBps < 1 || params.slippageBps > 1000) {
+        throw new Error(`slippageBps must be an integer in [1, 1000] bps, got ${params.slippageBps}`);
+    }
+    assertFraction('rebalancePercentage', params.rebalancePercentage);
+    assertFraction('priceTolerance', params.priceTolerance);
+    if (!params.minimumTradeAmount.isFinite() || params.minimumTradeAmount.lte(0)) {
+        throw new Error(`minimumTradeAmount must be > 0, got ${params.minimumTradeAmount.toString()}`);
+    }
+    if (!Number.isFinite(params.waitTime) || params.waitTime < 1000) {
+        throw new Error(`waitTime must be >= 1000 ms, got ${params.waitTime}`);
+    }
+}
+
+/**
  * Class for market making basic strategy
  */
 export class MarketMaker {
@@ -57,6 +90,8 @@ export class MarketMaker {
         this.priceTolerance = config.priceTolerance ?? 0.02; // 2%
         this.rebalancePercentage = config.rebalancePercentage ?? 0.5; // 50%
         this.minimumTradeAmount = new Decimal(config.minimumTradeAmount ?? 0.01);
+
+        validateStrategyConfig(this);
     }
 
     /**

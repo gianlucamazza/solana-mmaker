@@ -23,6 +23,32 @@ function makeMarketMaker(config: MarketMakerConfig = {}): { mm: MarketMaker; pai
     return { mm, pair: { token0: mm.solToken, token1: mm.mbcToken } };
 }
 
+describe('MarketMaker config validation', () => {
+    it('rejects a rebalance percentage outside (0,1)', () => {
+        expect(() => new MarketMaker({ rebalancePercentage: 1.5 })).toThrow(/rebalancePercentage/);
+        expect(() => new MarketMaker({ rebalancePercentage: 0 })).toThrow(/rebalancePercentage/);
+    });
+
+    it('rejects a non-integer or out-of-range slippage', () => {
+        expect(() => new MarketMaker({ slippageBps: -1 })).toThrow(/slippageBps/);
+        expect(() => new MarketMaker({ slippageBps: 2000 })).toThrow(/slippageBps/);
+        expect(() => new MarketMaker({ slippageBps: 10.5 })).toThrow(/slippageBps/);
+    });
+
+    it('rejects a non-positive price tolerance and minimum trade amount', () => {
+        expect(() => new MarketMaker({ priceTolerance: 0 })).toThrow(/priceTolerance/);
+        expect(() => new MarketMaker({ minimumTradeAmount: 0 })).toThrow(/minimumTradeAmount/);
+    });
+
+    it('rejects a wait time below 1000ms', () => {
+        expect(() => new MarketMaker({ waitTime: 500 })).toThrow(/waitTime/);
+    });
+
+    it('accepts valid overrides', () => {
+        expect(() => new MarketMaker({ rebalancePercentage: 0.75, slippageBps: 50 })).not.toThrow();
+    });
+});
+
 describe('determineTradeNecessity', () => {
     it('does not trade a balanced portfolio', async () => {
         const { mm, pair } = makeMarketMaker();
