@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import Decimal from 'decimal.js';
+import { Connection, PublicKey } from '@solana/web3.js';
 import { MarketMaker, MarketMakerConfig, TradePair } from '../src/strategies/basicMM';
 import { JupiterClient } from '../src/api/jupiter';
 import { SOL_MINT_ADDRESS, MBC_MINT_ADDRESS } from '../src/constants/constants';
@@ -46,6 +47,38 @@ describe('MarketMaker config validation', () => {
 
     it('accepts valid overrides', () => {
         expect(() => new MarketMaker({ rebalancePercentage: 0.75, slippageBps: 50 })).not.toThrow();
+    });
+});
+
+describe('getSPLTokenBalance', () => {
+    function fakeConnectionWithAccounts(entries: { mint: string; amount: string }[]): Connection {
+        return {
+            getParsedTokenAccountsByOwner: async () => ({
+                value: entries.map((e) => ({
+                    account: { data: { parsed: { info: { mint: e.mint, tokenAmount: { amount: e.amount } } } } },
+                })),
+            }),
+        } as unknown as Connection;
+    }
+
+    it('sums every token account that matches the mint', async () => {
+        const mm = new MarketMaker();
+        const wallet = new PublicKey(SOL_MINT_ADDRESS);
+        const connection = fakeConnectionWithAccounts([
+            { mint: MBC_MINT_ADDRESS, amount: '100' },
+            { mint: MBC_MINT_ADDRESS, amount: '250' },
+            { mint: SOL_MINT_ADDRESS, amount: '999' }, // different mint, must be ignored
+        ]);
+        const balance = await mm.getSPLTokenBalance(connection, wallet, new PublicKey(MBC_MINT_ADDRESS));
+        expect(balance.toString()).toBe('350');
+    });
+
+    it('returns 0 when no account matches the mint', async () => {
+        const mm = new MarketMaker();
+        const wallet = new PublicKey(SOL_MINT_ADDRESS);
+        const connection = fakeConnectionWithAccounts([{ mint: SOL_MINT_ADDRESS, amount: '10' }]);
+        const balance = await mm.getSPLTokenBalance(connection, wallet, new PublicKey(MBC_MINT_ADDRESS));
+        expect(balance.toString()).toBe('0');
     });
 });
 

@@ -264,8 +264,12 @@ export class MarketMaker {
      */
     async getSPLTokenBalance(connection: Connection, walletAddress: PublicKey, tokenMintAddress: PublicKey): Promise<Decimal> {
         const accounts = await connection.getParsedTokenAccountsByOwner(walletAddress, { programId: TOKEN_PROGRAM_ID });
-        const accountInfo = accounts.value.find((account) => account.account.data.parsed.info.mint === tokenMintAddress.toBase58());
-        return accountInfo ? new Decimal(accountInfo.account.data.parsed.info.tokenAmount.amount) : new Decimal(0);
+        const mint = tokenMintAddress.toBase58();
+        // A wallet can hold several token accounts for the same mint (ATA + legacy/extra);
+        // sum them all instead of taking only the first match.
+        return accounts.value
+            .filter((account) => account.account.data.parsed.info.mint === mint)
+            .reduce((total, account) => total.add(new Decimal(account.account.data.parsed.info.tokenAmount.amount)), new Decimal(0));
     }
 
     /**
