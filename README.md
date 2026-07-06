@@ -27,11 +27,11 @@ This project is a Solana Market Maker Bot designed to automate trading strategie
 ├── eslint.config.mjs
 ├── .env.example                # Template for environment configuration
 ├── .github
-│   └── workflows/ci.yml        # CI: build, lint, test
+│   └── workflows/ci.yml        # CI: build, lint, test, audit (Node 20 & 22)
 ├── src
 │   ├── api
 │   │   ├── jupiter.ts          # Jupiter API client with quote and swap functionality
-│   │   └── solana.ts           # Solana connection management and mint helpers
+│   │   └── solana.ts           # Solana RPC client (@solana/kit) and mint helpers
 │   ├── constants
 │   │   └── constants.ts        # Token mint addresses
 │   ├── main.ts                 # Entry point and setup
@@ -41,7 +41,7 @@ This project is a Solana Market Maker Bot designed to automate trading strategie
 │   │   ├── convert.ts          # Token unit conversion utilities (Decimal-based)
 │   │   ├── transactionSender.ts # Robust transaction submission with retry logic
 │   │   └── sleep.ts            # Asynchronous sleep utility
-│   └── wallet.ts               # Keypair loading from file or mnemonic
+│   └── wallet.ts               # Signer loading (@solana/kit) from file or mnemonic
 └── tests                       # Vitest unit tests
     ├── basicMM.test.ts
     └── convert.test.ts
@@ -49,7 +49,7 @@ This project is a Solana Market Maker Bot designed to automate trading strategie
 
 ## Requirements
 
-- Node.js (version 18.x or later)
+- Node.js (version 20.x or later; the `@solana/kit` signer relies on WebCrypto Ed25519)
 - A funded Solana wallet with SOL and SPL tokens
 
 ## Setup
@@ -77,7 +77,7 @@ This project is a Solana Market Maker Bot designed to automate trading strategie
 | `USER_KEYPAIR`               | no\*     | Path to a JSON secret-key file (solana-keygen format)                          |
 | `SOLANA_MNEMONIC`            | no\*     | BIP39 mnemonic to derive the keypair from                                      |
 | `ENABLE_TRADING`             | no       | `true` to execute real swaps; anything else runs in simulation mode            |
-| `JUPITER_API_BASE_URL`       | no       | Override the Jupiter API base URL (default: `https://quote-api.jup.ag/v6`)     |
+| `JUPITER_API_BASE_URL`       | no       | Override the Jupiter API base URL (default: `https://lite-api.jup.ag/swap/v1`) |
 | `MM_WAIT_TIME_MS`            | no       | Milliseconds between rebalance checks (default: `60000`)                       |
 | `MM_SLIPPAGE_BPS`            | no       | Maximum slippage in basis points (default: `50`)                               |
 | `MM_PRICE_TOLERANCE`         | no       | Portfolio imbalance fraction required to trigger a rebalance (default: `0.02`) |

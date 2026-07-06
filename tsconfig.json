@@ -1,26 +1,19 @@
 {
-    "compilerOptions": {
-        "target": "es6",
-        "module": "commonjs",
-        "strict": true,
-        "esModuleInterop": true,
-        "forceConsistentCasingInFileNames": true,
-        "outDir": "dist",
-        "rootDir": "src",
-        "resolveJsonModule": true,
-        "skipLibCheck": true,
-        "lib": [
-            "es2020"
-        ],
-        "sourceMap": true,
-        "declaration": true
-    },
-    "include": [
-        "src/**/*.ts"
-    ],
-    "exclude": [
-        "node_modules",
-        "dist",
-        "tests"
-    ]
+  "compilerOptions": {
+    "target": "es2022",
+    "module": "nodenext",
+    "moduleResolution": "nodenext",
+    "strict": true,
+    "esModuleInterop": true,
+    "forceConsistentCasingInFileNames": true,
+    "outDir": "dist",
+    "rootDir": "src",
+    "resolveJsonModule": true,
+    "skipLibCheck": true,
+    "lib": ["es2023"],
+    "sourceMap": true,
+    "declaration": true
+  },
+  "include": ["src/**/*.ts"],
+  "exclude": ["node_modules", "dist", "tests"]
 }
