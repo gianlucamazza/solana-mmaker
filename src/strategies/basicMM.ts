@@ -1,11 +1,15 @@
-import { TOKEN_PROGRAM_ID } from '@solana/spl-token';
-import { Connection, PublicKey } from '@solana/web3.js';
-import Decimal from 'decimal.js';
-import { JupiterClient, SwapResponse } from '../api/jupiter';
-import { getMintDecimals } from '../api/solana';
-import { SOL_MINT_ADDRESS, MBC_MINT_ADDRESS, USDC_MINT_ADDRESS } from '../constants/constants';
-import { fromNumberToLamports } from '../utils/convert';
-import { sleep } from '../utils/sleep';
+import { TOKEN_PROGRAM_ADDRESS } from "@solana-program/token";
+import { address, type Address } from "@solana/kit";
+import { Decimal } from "decimal.js";
+import { JupiterClient, SwapResponse } from "../api/jupiter.js";
+import { getMintDecimals, type SolanaRpc } from "../api/solana.js";
+import {
+  SOL_MINT_ADDRESS,
+  MBC_MINT_ADDRESS,
+  USDC_MINT_ADDRESS,
+} from "../constants/constants.js";
+import { fromNumberToLamports } from "../utils/convert.js";
+import { sleep } from "../utils/sleep.js";
 
 /**
  * Slippage used only for *pricing* quotes. Kept at 0 so the portfolio valuation
@@ -14,36 +18,38 @@ import { sleep } from '../utils/sleep';
 const PRICE_QUOTE_SLIPPAGE_BPS = 0;
 
 export interface Token {
-    address: string;
-    symbol: string;
-    decimals: number;
+  address: string;
+  symbol: string;
+  decimals: number;
 }
 
 export interface TradePair {
-    token0: Token;
-    token1: Token;
+  token0: Token;
+  token1: Token;
 }
 
 export interface MarketMakerConfig {
-    /** Milliseconds between rebalance checks. Default: 60000 (1 minute). */
-    waitTime?: number;
-    /** Maximum slippage in basis points. Default: 50 (0.5%). */
-    slippageBps?: number;
-    /** Portfolio imbalance, as a fraction of total value, required to trigger a rebalance. Default: 0.02 (2%). */
-    priceTolerance?: number;
-    /** Target share of total value held in token0. Default: 0.5 (50/50). */
-    rebalancePercentage?: number;
-    /** Minimum trade value in USD for a rebalance to be worth executing. Default: 1. */
-    minimumTradeValueUsd?: number;
+  /** Milliseconds between rebalance checks. Default: 60000 (1 minute). */
+  waitTime?: number;
+  /** Maximum slippage in basis points. Default: 50 (0.5%). */
+  slippageBps?: number;
+  /** Portfolio imbalance, as a fraction of total value, required to trigger a rebalance. Default: 0.02 (2%). */
+  priceTolerance?: number;
+  /** Target share of total value held in token0. Default: 0.5 (50/50). */
+  rebalancePercentage?: number;
+  /** Minimum trade value in USD for a rebalance to be worth executing. Default: 1. */
+  minimumTradeValueUsd?: number;
 }
 
 /**
  * Throw if `value` is outside `(min, max)` (exclusive) — used for fraction parameters.
  */
 function assertFraction(name: string, value: number): void {
-    if (!Number.isFinite(value) || value <= 0 || value >= 1) {
-        throw new Error(`${name} must be a number in the open interval (0, 1), got ${value}`);
-    }
+  if (!Number.isFinite(value) || value <= 0 || value >= 1) {
+    throw new Error(
+      `${name} must be a number in the open interval (0, 1), got ${value}`,
+    );
+  }
 }
 
 /**
@@ -51,278 +57,398 @@ function assertFraction(name: string, value: number): void {
  * bot trade unsafely (e.g. a rebalance target above 100% or a negative slippage).
  */
 function validateStrategyConfig(params: {
-    waitTime: number;
-    slippageBps: number;
-    priceTolerance: number;
-    rebalancePercentage: number;
-    minimumTradeValueUsd: Decimal;
+  waitTime: number;
+  slippageBps: number;
+  priceTolerance: number;
+  rebalancePercentage: number;
+  minimumTradeValueUsd: Decimal;
 }): void {
-    if (!Number.isInteger(params.slippageBps) || params.slippageBps < 1 || params.slippageBps > 1000) {
-        throw new Error(`slippageBps must be an integer in [1, 1000] bps, got ${params.slippageBps}`);
-    }
-    assertFraction('rebalancePercentage', params.rebalancePercentage);
-    assertFraction('priceTolerance', params.priceTolerance);
-    if (!params.minimumTradeValueUsd.isFinite() || params.minimumTradeValueUsd.lte(0)) {
-        throw new Error(`minimumTradeValueUsd must be > 0, got ${params.minimumTradeValueUsd.toString()}`);
-    }
-    if (!Number.isFinite(params.waitTime) || params.waitTime < 1000) {
-        throw new Error(`waitTime must be >= 1000 ms, got ${params.waitTime}`);
-    }
+  if (
+    !Number.isInteger(params.slippageBps) ||
+    params.slippageBps < 1 ||
+    params.slippageBps > 1000
+  ) {
+    throw new Error(
+      `slippageBps must be an integer in [1, 1000] bps, got ${params.slippageBps}`,
+    );
+  }
+  assertFraction("rebalancePercentage", params.rebalancePercentage);
+  assertFraction("priceTolerance", params.priceTolerance);
+  if (
+    !params.minimumTradeValueUsd.isFinite() ||
+    params.minimumTradeValueUsd.lte(0)
+  ) {
+    throw new Error(
+      `minimumTradeValueUsd must be > 0, got ${params.minimumTradeValueUsd.toString()}`,
+    );
+  }
+  if (!Number.isFinite(params.waitTime) || params.waitTime < 1000) {
+    throw new Error(`waitTime must be >= 1000 ms, got ${params.waitTime}`);
+  }
 }
 
 /**
  * Class for market making basic strategy
  */
 export class MarketMaker {
-    mbcToken: Token;
-    solToken: Token;
-    usdcToken: Token;
-    waitTime: number;
-    slippageBps: number;
-    priceTolerance: number;
-    rebalancePercentage: number;
-    minimumTradeValueUsd: Decimal;
-    private running: boolean = true;
+  mbcToken: Token;
+  solToken: Token;
+  usdcToken: Token;
+  waitTime: number;
+  slippageBps: number;
+  priceTolerance: number;
+  rebalancePercentage: number;
+  minimumTradeValueUsd: Decimal;
+  private running: boolean = true;
 
-    /**
-     * Initializes a new instance of the MarketMaker class.
-     * @param config Optional overrides for the strategy parameters.
-     */
-    constructor(config: MarketMakerConfig = {}) {
-        this.mbcToken = { address: MBC_MINT_ADDRESS, symbol: 'MBC', decimals: 9 };
-        this.solToken = { address: SOL_MINT_ADDRESS, symbol: 'SOL', decimals: 9 };
-        this.usdcToken = { address: USDC_MINT_ADDRESS, symbol: 'USDC', decimals: 6 };
-        this.waitTime = config.waitTime ?? 60000; // 1 minute
-        this.slippageBps = config.slippageBps ?? 50; // 0.5%
-        this.priceTolerance = config.priceTolerance ?? 0.02; // 2%
-        this.rebalancePercentage = config.rebalancePercentage ?? 0.5; // 50%
-        this.minimumTradeValueUsd = new Decimal(config.minimumTradeValueUsd ?? 1); // $1
+  /**
+   * Initializes a new instance of the MarketMaker class.
+   * @param config Optional overrides for the strategy parameters.
+   */
+  constructor(config: MarketMakerConfig = {}) {
+    this.mbcToken = { address: MBC_MINT_ADDRESS, symbol: "MBC", decimals: 9 };
+    this.solToken = { address: SOL_MINT_ADDRESS, symbol: "SOL", decimals: 9 };
+    this.usdcToken = {
+      address: USDC_MINT_ADDRESS,
+      symbol: "USDC",
+      decimals: 6,
+    };
+    this.waitTime = config.waitTime ?? 60000; // 1 minute
+    this.slippageBps = config.slippageBps ?? 50; // 0.5%
+    this.priceTolerance = config.priceTolerance ?? 0.02; // 2%
+    this.rebalancePercentage = config.rebalancePercentage ?? 0.5; // 50%
+    this.minimumTradeValueUsd = new Decimal(config.minimumTradeValueUsd ?? 1); // $1
 
-        validateStrategyConfig(this);
+    validateStrategyConfig(this);
+  }
+
+  /**
+   * Run market making strategy
+   * @param {JupiterClient} jupiterClient - JupiterClient object
+   * @param {boolean} enableTrading - Enable trading
+   * @returns {Promise<void>} - Promise object
+   */
+  async runMM(
+    jupiterClient: JupiterClient,
+    enableTrading: boolean = false,
+  ): Promise<void> {
+    const tradePairs: TradePair[] = [
+      { token0: this.solToken, token1: this.mbcToken },
+    ];
+    await this.syncTokenDecimals(jupiterClient.getRpc());
+
+    while (this.running) {
+      for (const pair of tradePairs) {
+        if (!this.running) break;
+        try {
+          await this.evaluateAndExecuteTrade(
+            jupiterClient,
+            pair,
+            enableTrading,
+          );
+        } catch (err) {
+          // A transient RPC/API failure must not kill the bot; retry on the next cycle.
+          // Missing-price/route conditions are handled explicitly in
+          // determineTradeNecessity, so anything reaching here is an unexpected error.
+          console.error(
+            `Rebalance iteration for ${pair.token0.symbol}/${pair.token1.symbol} failed unexpectedly:`,
+            err,
+          );
+        }
+      }
+
+      if (!this.running) break;
+      console.log(`Waiting for ${this.waitTime / 1000} seconds...`);
+      await sleep(this.waitTime);
     }
 
-    /**
-     * Run market making strategy
-     * @param {JupiterClient} jupiterClient - JupiterClient object
-     * @param {boolean} enableTrading - Enable trading
-     * @returns {Promise<void>} - Promise object
-     */
-    async runMM(jupiterClient: JupiterClient, enableTrading: boolean = false): Promise<void> {
-        const tradePairs: TradePair[] = [{ token0: this.solToken, token1: this.mbcToken }];
-        await this.syncTokenDecimals(jupiterClient.getConnection());
+    console.log("Market maker stopped.");
+  }
 
-        while (this.running) {
-            for (const pair of tradePairs) {
-                if (!this.running) break;
-                try {
-                    await this.evaluateAndExecuteTrade(jupiterClient, pair, enableTrading);
-                } catch (err) {
-                    // A transient RPC/API failure must not kill the bot; retry on the next cycle.
-                    // Missing-price/route conditions are handled explicitly in
-                    // determineTradeNecessity, so anything reaching here is an unexpected error.
-                    console.error(`Rebalance iteration for ${pair.token0.symbol}/${pair.token1.symbol} failed unexpectedly:`, err);
-                }
-            }
+  /**
+   * Request a graceful shutdown: the run loop exits after the current cycle.
+   */
+  stop(): void {
+    if (this.running) {
+      console.log("Shutdown requested; finishing the current cycle...");
+      this.running = false;
+    }
+  }
 
-            if (!this.running) break;
-            console.log(`Waiting for ${this.waitTime / 1000} seconds...`);
-            await sleep(this.waitTime);
+  /**
+   * Read SPL token decimals from the chain so the hardcoded defaults cannot drift
+   * from the actual mint configuration.
+   * @param rpc Solana RPC client.
+   */
+  async syncTokenDecimals(rpc: SolanaRpc): Promise<void> {
+    for (const token of [this.mbcToken, this.usdcToken]) {
+      try {
+        const decimals = await getMintDecimals(rpc, token.address);
+        if (decimals !== token.decimals) {
+          console.warn(
+            `Correcting ${token.symbol} decimals from ${token.decimals} to on-chain value ${decimals}`,
+          );
+          token.decimals = decimals;
         }
+      } catch (err) {
+        console.warn(
+          `Could not verify ${token.symbol} decimals on-chain, keeping ${token.decimals}:`,
+          err,
+        );
+      }
+    }
+  }
 
-        console.log('Market maker stopped.');
+  /**
+   * Evaluate and execute trade
+   * @param {JupiterClient} jupiterClient - JupiterClient object
+   * @param {TradePair} pair - Pair object
+   * @param {boolean} enableTrading - Enable trading
+   * @returns {Promise<void>} - Promise object
+   */
+  async evaluateAndExecuteTrade(
+    jupiterClient: JupiterClient,
+    pair: TradePair,
+    enableTrading: boolean,
+  ): Promise<void> {
+    const token0Balance = await this.fetchTokenBalance(
+      jupiterClient,
+      pair.token0,
+    );
+    const token1Balance = await this.fetchTokenBalance(
+      jupiterClient,
+      pair.token1,
+    );
+
+    console.log(
+      `Token0 balance (in ${pair.token0.symbol}): ${token0Balance.toString()}`,
+    );
+    console.log(
+      `Token1 balance (in ${pair.token1.symbol}): ${token1Balance.toString()}`,
+    );
+
+    const { tradeNeeded, solAmountToTrade, mbcAmountToTrade } =
+      await this.determineTradeNecessity(
+        jupiterClient,
+        pair,
+        token0Balance,
+        token1Balance,
+      );
+
+    if (!tradeNeeded) {
+      console.log("No trade needed");
+      return;
     }
 
-    /**
-     * Request a graceful shutdown: the run loop exits after the current cycle.
-     */
-    stop(): void {
-        if (this.running) {
-            console.log('Shutdown requested; finishing the current cycle...');
-            this.running = false;
-        }
+    console.log("Trade needed");
+    if (solAmountToTrade.gt(0)) {
+      await this.executeTrade(
+        jupiterClient,
+        pair.token0,
+        pair.token1,
+        solAmountToTrade,
+        enableTrading,
+      );
+    } else if (mbcAmountToTrade.gt(0)) {
+      await this.executeTrade(
+        jupiterClient,
+        pair.token1,
+        pair.token0,
+        mbcAmountToTrade,
+        enableTrading,
+      );
+    }
+  }
+
+  /**
+   * Quote and execute a single swap, surfacing failures instead of ignoring them.
+   */
+  private async executeTrade(
+    jupiterClient: JupiterClient,
+    inputToken: Token,
+    outputToken: Token,
+    amount: Decimal,
+    enableTrading: boolean,
+  ): Promise<void> {
+    console.log(
+      `Trading ${amount.toString()} ${inputToken.symbol} for ${outputToken.symbol}...`,
+    );
+    const lamports = fromNumberToLamports(amount, inputToken.decimals);
+    const quote = await jupiterClient.getQuote(
+      inputToken.address,
+      outputToken.address,
+      lamports,
+      this.slippageBps,
+    );
+    const swapResponse: SwapResponse =
+      await jupiterClient.getSwapTransaction(quote);
+
+    if (!enableTrading) {
+      console.log("Trading disabled");
+      return;
     }
 
-    /**
-     * Read SPL token decimals from the chain so the hardcoded defaults cannot drift
-     * from the actual mint configuration.
-     * @param connection Solana connection object.
-     */
-    async syncTokenDecimals(connection: Connection): Promise<void> {
-        for (const token of [this.mbcToken, this.usdcToken]) {
-            try {
-                const decimals = await getMintDecimals(connection, token.address);
-                if (decimals !== token.decimals) {
-                    console.warn(`Correcting ${token.symbol} decimals from ${token.decimals} to on-chain value ${decimals}`);
-                    token.decimals = decimals;
-                }
-            } catch (err) {
-                console.warn(`Could not verify ${token.symbol} decimals on-chain, keeping ${token.decimals}:`, err);
-            }
-        }
+    const success = await jupiterClient.executeSwap(swapResponse);
+    if (!success) {
+      console.error(
+        `Swap of ${amount.toString()} ${inputToken.symbol} -> ${outputToken.symbol} failed; balances will be re-evaluated on the next cycle`,
+      );
+    }
+  }
+
+  /**
+   * Determines the necessity of a trade based on the current balance of two tokens and their USD values.
+   * The goal is to keep token0 at `rebalancePercentage` of the total portfolio value, trading only when
+   * the imbalance exceeds `priceTolerance` of the total value and the resulting amount is above
+   * `minimumTradeAmount`.
+   *
+   * @param jupiterClient An instance of JupiterClient used to fetch USD values of tokens.
+   * @param pair An object representing the token pair to be evaluated, containing `token0` and `token1` properties.
+   * @param token0Balance The current balance of `token0`.
+   * @param token1Balance The current balance of `token1`.
+   * @returns A promise that resolves to an object indicating whether a trade is needed and the amount of each token to trade.
+   */
+  async determineTradeNecessity(
+    jupiterClient: JupiterClient,
+    pair: TradePair,
+    token0Balance: Decimal,
+    token1Balance: Decimal,
+  ) {
+    const token0Price = await this.getUSDValue(jupiterClient, pair.token0);
+    const token1Price = await this.getUSDValue(jupiterClient, pair.token1);
+
+    let solAmountToTrade = new Decimal(0);
+    let mbcAmountToTrade = new Decimal(0);
+    let tradeNeeded = false;
+
+    // Without a valid price for both tokens the portfolio cannot be valued.
+    // Surface this explicitly and skip, instead of dividing by zero / letting
+    // the generic catch in runMM swallow it silently every cycle.
+    if (token0Price.lte(0) || token1Price.lte(0)) {
+      console.warn(
+        `Skipping ${pair.token0.symbol}/${pair.token1.symbol}: missing price/route ` +
+          `(${pair.token0.symbol}=${token0Price.toString()}, ${pair.token1.symbol}=${token1Price.toString()})`,
+      );
+      return { tradeNeeded, solAmountToTrade, mbcAmountToTrade };
     }
 
-    /**
-     * Evaluate and execute trade
-     * @param {JupiterClient} jupiterClient - JupiterClient object
-     * @param {TradePair} pair - Pair object
-     * @param {boolean} enableTrading - Enable trading
-     * @returns {Promise<void>} - Promise object
-     */
-    async evaluateAndExecuteTrade(jupiterClient: JupiterClient, pair: TradePair, enableTrading: boolean): Promise<void> {
-        const token0Balance = await this.fetchTokenBalance(jupiterClient, pair.token0);
-        const token1Balance = await this.fetchTokenBalance(jupiterClient, pair.token1);
+    const token0Value = token0Balance.mul(token0Price);
+    const token1Value = token1Balance.mul(token1Price);
 
-        console.log(`Token0 balance (in ${pair.token0.symbol}): ${token0Balance.toString()}`);
-        console.log(`Token1 balance (in ${pair.token1.symbol}): ${token1Balance.toString()}`);
+    const totalPortfolioValue = token0Value.add(token1Value);
+    const targetToken0Value = totalPortfolioValue.mul(this.rebalancePercentage);
+    const targetToken1Value = totalPortfolioValue.sub(targetToken0Value);
+    const toleranceValue = totalPortfolioValue.mul(this.priceTolerance);
 
-        const { tradeNeeded, solAmountToTrade, mbcAmountToTrade } =
-            await this.determineTradeNecessity(jupiterClient, pair, token0Balance, token1Balance);
+    console.log(`${pair.token0.symbol} value: ${token0Value.toString()}`);
+    console.log(`${pair.token1.symbol} value: ${token1Value.toString()}`);
 
-        if (!tradeNeeded) {
-            console.log('No trade needed');
-            return;
-        }
-
-        console.log('Trade needed');
-        if (solAmountToTrade.gt(0)) {
-            await this.executeTrade(jupiterClient, pair.token0, pair.token1, solAmountToTrade, enableTrading);
-        } else if (mbcAmountToTrade.gt(0)) {
-            await this.executeTrade(jupiterClient, pair.token1, pair.token0, mbcAmountToTrade, enableTrading);
-        }
+    let tradeValueUsd = new Decimal(0);
+    if (token0Value.sub(targetToken0Value).gt(toleranceValue)) {
+      // token0 is overweight beyond the tolerance: sell the surplus for token1
+      const valueDiff = token0Value.sub(targetToken0Value);
+      solAmountToTrade = valueDiff.div(token0Price);
+      tradeValueUsd = valueDiff;
+      tradeNeeded = true;
+    } else if (token1Value.sub(targetToken1Value).gt(toleranceValue)) {
+      // token1 is overweight beyond the tolerance: sell the surplus for token0
+      const valueDiff = token1Value.sub(targetToken1Value);
+      mbcAmountToTrade = valueDiff.div(token1Price);
+      tradeValueUsd = valueDiff;
+      tradeNeeded = true;
     }
 
-    /**
-     * Quote and execute a single swap, surfacing failures instead of ignoring them.
-     */
-    private async executeTrade(jupiterClient: JupiterClient, inputToken: Token, outputToken: Token, amount: Decimal, enableTrading: boolean): Promise<void> {
-        console.log(`Trading ${amount.toString()} ${inputToken.symbol} for ${outputToken.symbol}...`);
-        const lamports = fromNumberToLamports(amount, inputToken.decimals);
-        const quote = await jupiterClient.getQuote(inputToken.address, outputToken.address, lamports, this.slippageBps);
-        const swapResponse: SwapResponse = await jupiterClient.getSwapTransaction(quote);
-
-        if (!enableTrading) {
-            console.log('Trading disabled');
-            return;
-        }
-
-        const success = await jupiterClient.executeSwap(swapResponse);
-        if (!success) {
-            console.error(`Swap of ${amount.toString()} ${inputToken.symbol} -> ${outputToken.symbol} failed; balances will be re-evaluated on the next cycle`);
-        }
+    // Compare the trade value in USD (not raw token amounts, which are not
+    // comparable across tokens) against the minimum trade value.
+    if (tradeNeeded && tradeValueUsd.lt(this.minimumTradeValueUsd)) {
+      tradeNeeded = false;
     }
 
-    /**
-     * Determines the necessity of a trade based on the current balance of two tokens and their USD values.
-     * The goal is to keep token0 at `rebalancePercentage` of the total portfolio value, trading only when
-     * the imbalance exceeds `priceTolerance` of the total value and the resulting amount is above
-     * `minimumTradeAmount`.
-     *
-     * @param jupiterClient An instance of JupiterClient used to fetch USD values of tokens.
-     * @param pair An object representing the token pair to be evaluated, containing `token0` and `token1` properties.
-     * @param token0Balance The current balance of `token0`.
-     * @param token1Balance The current balance of `token1`.
-     * @returns A promise that resolves to an object indicating whether a trade is needed and the amount of each token to trade.
-     */
-    async determineTradeNecessity(jupiterClient: JupiterClient, pair: TradePair, token0Balance: Decimal, token1Balance: Decimal) {
-        const token0Price = await this.getUSDValue(jupiterClient, pair.token0);
-        const token1Price = await this.getUSDValue(jupiterClient, pair.token1);
+    return { tradeNeeded, solAmountToTrade, mbcAmountToTrade };
+  }
 
-        let solAmountToTrade = new Decimal(0);
-        let mbcAmountToTrade = new Decimal(0);
-        let tradeNeeded = false;
+  /**
+   * Fetch token balance
+   * @param {JupiterClient} jupiterClient - JupiterClient object
+   * @param {Token} token - Token object
+   * @returns {Promise<Decimal>} - Token balance
+   */
+  async fetchTokenBalance(
+    jupiterClient: JupiterClient,
+    token: Token,
+  ): Promise<Decimal> {
+    const rpc = jupiterClient.getRpc();
+    const walletAddress = jupiterClient.getSigner().address;
 
-        // Without a valid price for both tokens the portfolio cannot be valued.
-        // Surface this explicitly and skip, instead of dividing by zero / letting
-        // the generic catch in runMM swallow it silently every cycle.
-        if (token0Price.lte(0) || token1Price.lte(0)) {
-            console.warn(
-                `Skipping ${pair.token0.symbol}/${pair.token1.symbol}: missing price/route ` +
-                `(${pair.token0.symbol}=${token0Price.toString()}, ${pair.token1.symbol}=${token1Price.toString()})`
-            );
-            return { tradeNeeded, solAmountToTrade, mbcAmountToTrade };
-        }
+    const balance =
+      token.address === SOL_MINT_ADDRESS
+        ? new Decimal(
+            (await rpc.getBalance(walletAddress).send()).value.toString(),
+          )
+        : await this.getSPLTokenBalance(
+            rpc,
+            walletAddress,
+            address(token.address),
+          );
 
-        const token0Value = token0Balance.mul(token0Price);
-        const token1Value = token1Balance.mul(token1Price);
+    return balance.div(new Decimal(10).pow(token.decimals));
+  }
 
-        const totalPortfolioValue = token0Value.add(token1Value);
-        const targetToken0Value = totalPortfolioValue.mul(this.rebalancePercentage);
-        const targetToken1Value = totalPortfolioValue.sub(targetToken0Value);
-        const toleranceValue = totalPortfolioValue.mul(this.priceTolerance);
+  /**
+   * Get SPL token balance in minor units.
+   * @param rpc Solana RPC client.
+   * @param walletAddress Wallet address.
+   * @param tokenMintAddress Token mint address.
+   * @returns Token balance as a Decimal.
+   */
+  async getSPLTokenBalance(
+    rpc: SolanaRpc,
+    walletAddress: Address,
+    tokenMintAddress: Address,
+  ): Promise<Decimal> {
+    const accounts = await rpc
+      .getTokenAccountsByOwner(
+        walletAddress,
+        { programId: TOKEN_PROGRAM_ADDRESS },
+        { encoding: "jsonParsed" },
+      )
+      .send();
+    const mint = tokenMintAddress;
+    // A wallet can hold several token accounts for the same mint (ATA + legacy/extra);
+    // sum them all instead of taking only the first match.
+    return accounts.value
+      .filter((account) => account.account.data.parsed.info.mint === mint)
+      .reduce(
+        (total, account) =>
+          total.add(
+            new Decimal(account.account.data.parsed.info.tokenAmount.amount),
+          ),
+        new Decimal(0),
+      );
+  }
 
-        console.log(`${pair.token0.symbol} value: ${token0Value.toString()}`);
-        console.log(`${pair.token1.symbol} value: ${token1Value.toString()}`);
-
-        let tradeValueUsd = new Decimal(0);
-        if (token0Value.sub(targetToken0Value).gt(toleranceValue)) {
-            // token0 is overweight beyond the tolerance: sell the surplus for token1
-            const valueDiff = token0Value.sub(targetToken0Value);
-            solAmountToTrade = valueDiff.div(token0Price);
-            tradeValueUsd = valueDiff;
-            tradeNeeded = true;
-        } else if (token1Value.sub(targetToken1Value).gt(toleranceValue)) {
-            // token1 is overweight beyond the tolerance: sell the surplus for token0
-            const valueDiff = token1Value.sub(targetToken1Value);
-            mbcAmountToTrade = valueDiff.div(token1Price);
-            tradeValueUsd = valueDiff;
-            tradeNeeded = true;
-        }
-
-        // Compare the trade value in USD (not raw token amounts, which are not
-        // comparable across tokens) against the minimum trade value.
-        if (tradeNeeded && tradeValueUsd.lt(this.minimumTradeValueUsd)) {
-            tradeNeeded = false;
-        }
-
-        return { tradeNeeded, solAmountToTrade, mbcAmountToTrade };
-    }
-
-    /**
-     * Fetch token balance
-     * @param {JupiterClient} jupiterClient - JupiterClient object
-     * @param {Token} token - Token object
-     * @returns {Promise<Decimal>} - Token balance
-     */
-    async fetchTokenBalance(jupiterClient: JupiterClient, token: Token): Promise<Decimal> {
-        const connection = jupiterClient.getConnection();
-        const publicKey = jupiterClient.getUserKeypair().publicKey;
-
-        const balance = token.address === SOL_MINT_ADDRESS
-            ? new Decimal(await connection.getBalance(publicKey))
-            : await this.getSPLTokenBalance(connection, publicKey, new PublicKey(token.address));
-
-        return balance.div(new Decimal(10).pow(token.decimals));
-    }
-
-    /**
-     * Get SPL token balance in minor units.
-     * @param connection Solana connection object.
-     * @param walletAddress Wallet public key.
-     * @param tokenMintAddress Token mint public key.
-     * @returns Token balance as a Decimal.
-     */
-    async getSPLTokenBalance(connection: Connection, walletAddress: PublicKey, tokenMintAddress: PublicKey): Promise<Decimal> {
-        const accounts = await connection.getParsedTokenAccountsByOwner(walletAddress, { programId: TOKEN_PROGRAM_ID });
-        const mint = tokenMintAddress.toBase58();
-        // A wallet can hold several token accounts for the same mint (ATA + legacy/extra);
-        // sum them all instead of taking only the first match.
-        return accounts.value
-            .filter((account) => account.account.data.parsed.info.mint === mint)
-            .reduce((total, account) => total.add(new Decimal(account.account.data.parsed.info.tokenAmount.amount)), new Decimal(0));
-    }
-
-    /**
-     * Get USD value of a token.
-     * @param jupiterClient JupiterClient object.
-     * @param token Token object.
-     * @returns USD value of one token unit as a Decimal.
-     */
-    async getUSDValue(jupiterClient: JupiterClient, token: Token): Promise<Decimal> {
-        // Use a dedicated pricing slippage (0), not the execution slippage, so the
-        // valuation is not skewed by the slippage the bot tolerates when trading.
-        // NOTE: this samples 1 unit and so ignores the price-impact of the real
-        // trade size; a future improvement is Jupiter's dedicated Price API.
-        const quote = await jupiterClient.getQuote(token.address, this.usdcToken.address, fromNumberToLamports(1, token.decimals), PRICE_QUOTE_SLIPPAGE_BPS);
-        return new Decimal(quote.outAmount).div(new Decimal(10).pow(this.usdcToken.decimals));
-    }
+  /**
+   * Get USD value of a token.
+   * @param jupiterClient JupiterClient object.
+   * @param token Token object.
+   * @returns USD value of one token unit as a Decimal.
+   */
+  async getUSDValue(
+    jupiterClient: JupiterClient,
+    token: Token,
+  ): Promise<Decimal> {
+    // Use a dedicated pricing slippage (0), not the execution slippage, so the
+    // valuation is not skewed by the slippage the bot tolerates when trading.
+    // NOTE: this samples 1 unit and so ignores the price-impact of the real
+    // trade size; a future improvement is Jupiter's dedicated Price API.
+    const quote = await jupiterClient.getQuote(
+      token.address,
+      this.usdcToken.address,
+      fromNumberToLamports(1, token.decimals),
+      PRICE_QUOTE_SLIPPAGE_BPS,
+    );
+    return new Decimal(quote.outAmount).div(
+      new Decimal(10).pow(this.usdcToken.decimals),
+    );
+  }
 }

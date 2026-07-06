@@ -4,7 +4,7 @@
 
 - `npm run build` - Compile TypeScript to JavaScript
 - `npm start` - Run the compiled bot (production)
-- `npm run dev` - Run the bot with ts-node (development)
+- `npm run dev` - Run the bot with tsx (development)
 - `npm test` - Run unit tests (Vitest)
 - `npm run lint` - Lint src and tests (ESLint)
 
@@ -35,7 +35,8 @@
 
 ## Dependencies
 
-- Solana web3.js and SPL Token
+- `@solana/kit` (modern Solana SDK, formerly web3.js v2) and `@solana-program/token`
 - Jupiter Aggregator HTTP API (v6)
-- TypeScript and Node.js (v18+)
-- Vitest for testing, ESLint (typescript-eslint) for linting
+- ESM-only project (`"type": "module"`, `tsconfig` `module: nodenext`); relative imports must carry a `.js` extension
+- TypeScript and Node.js (v20+; kit's signer uses WebCrypto Ed25519)
+- Vitest for testing, ESLint (typescript-eslint) for linting, tsx for `npm run dev`
