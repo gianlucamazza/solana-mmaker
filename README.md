@@ -2,6 +2,8 @@
 
 This project is a Solana Market Maker Bot designed to automate trading strategies on the Solana blockchain using the Jupiter swap protocol. It implements a portfolio rebalancing strategy between SOL and SPL tokens (50/50 by default), automatically executing trades to restore the target balance when price fluctuations create imbalances.
 
+> **⚠️ No official token.** This project has **no** associated cryptocurrency, coin, or token, and is not affiliated with any pump.fun / memecoin launch. Any coin claiming to represent, fund, or be "official" for this project is a **scam** — do not buy it and do not connect your wallet to it. The maintainer will never ask you to sign a transaction or connect a wallet in relation to this repository.
+
 ## Features
 
 - **Automatic Portfolio Rebalancing**: Maintains a configurable value balance between token pairs (default 50/50)
@@ -54,35 +56,35 @@ This project is a Solana Market Maker Bot designed to automate trading strategie
 
 1. Install Node.js: Ensure that you have Node.js installed on your machine. You can download it from [here](https://nodejs.org/)
 2. Clone the Repository: Clone the repository to your local machine:
-    ```bash
-    git clone https://github.com/gianlucamazza/solana-mmaker.git
-    cd solana-mmaker
-    ```
+   ```bash
+   git clone https://github.com/gianlucamazza/solana-mmaker.git
+   cd solana-mmaker
+   ```
 3. Install Dependencies:
-    ```bash
-    npm install
-    ```
+   ```bash
+   npm install
+   ```
 4. Environment Variables: Copy `.env.example` to `.env` and fill in your values:
-    ```bash
-    cp .env.example .env
-    ```
+   ```bash
+   cp .env.example .env
+   ```
 
 ### Environment Variables
 
-| Variable | Required | Description |
-| --- | --- | --- |
-| `SOLANA_RPC_ENDPOINT` | yes | Solana RPC endpoint URL |
-| `USER_KEYPAIR` | no* | Path to a JSON secret-key file (solana-keygen format) |
-| `SOLANA_MNEMONIC` | no* | BIP39 mnemonic to derive the keypair from |
-| `ENABLE_TRADING` | no | `true` to execute real swaps; anything else runs in simulation mode |
-| `JUPITER_API_BASE_URL` | no | Override the Jupiter API base URL (default: `https://quote-api.jup.ag/v6`) |
-| `MM_WAIT_TIME_MS` | no | Milliseconds between rebalance checks (default: `60000`) |
-| `MM_SLIPPAGE_BPS` | no | Maximum slippage in basis points (default: `50`) |
-| `MM_PRICE_TOLERANCE` | no | Portfolio imbalance fraction required to trigger a rebalance (default: `0.02`) |
-| `MM_REBALANCE_PERCENTAGE` | no | Target share of total value held in the first token (default: `0.5`) |
-| `MM_MINIMUM_TRADE_VALUE_USD` | no | Minimum trade value in USD for a rebalance to be executed (default: `1`) |
-| `MM_PRIORITY_FEE_LAMPORTS` | no | Priority fee in lamports attached to swaps (default: `200000`) |
-| `MM_SKIP_PREFLIGHT` | no | `true` to skip RPC preflight simulation when sending swaps (default: `false`) |
+| Variable                     | Required | Description                                                                    |
+| ---------------------------- | -------- | ------------------------------------------------------------------------------ |
+| `SOLANA_RPC_ENDPOINT`        | yes      | Solana RPC endpoint URL                                                        |
+| `USER_KEYPAIR`               | no\*     | Path to a JSON secret-key file (solana-keygen format)                          |
+| `SOLANA_MNEMONIC`            | no\*     | BIP39 mnemonic to derive the keypair from                                      |
+| `ENABLE_TRADING`             | no       | `true` to execute real swaps; anything else runs in simulation mode            |
+| `JUPITER_API_BASE_URL`       | no       | Override the Jupiter API base URL (default: `https://quote-api.jup.ag/v6`)     |
+| `MM_WAIT_TIME_MS`            | no       | Milliseconds between rebalance checks (default: `60000`)                       |
+| `MM_SLIPPAGE_BPS`            | no       | Maximum slippage in basis points (default: `50`)                               |
+| `MM_PRICE_TOLERANCE`         | no       | Portfolio imbalance fraction required to trigger a rebalance (default: `0.02`) |
+| `MM_REBALANCE_PERCENTAGE`    | no       | Target share of total value held in the first token (default: `0.5`)           |
+| `MM_MINIMUM_TRADE_VALUE_USD` | no       | Minimum trade value in USD for a rebalance to be executed (default: `1`)       |
+| `MM_PRIORITY_FEE_LAMPORTS`   | no       | Priority fee in lamports attached to swaps (default: `200000`)                 |
+| `MM_SKIP_PREFLIGHT`          | no       | `true` to skip RPC preflight simulation when sending swaps (default: `false`)  |
 
 \* Keypair resolution order: `USER_KEYPAIR` file → `SOLANA_MNEMONIC` → `~/.config/solana/id.json`. Set at most one of the two variables.
 
@@ -114,11 +116,11 @@ The strategy parameters can be set through the `MM_*` environment variables abov
 
 ```ts
 const marketMaker = new MarketMaker({
-    waitTime: 60000,            // ms between rebalance checks
-    slippageBps: 50,            // max slippage in basis points
-    priceTolerance: 0.02,       // imbalance fraction that triggers a rebalance
-    rebalancePercentage: 0.5,   // target share of value in the first token
-    minimumTradeValueUsd: 1,    // minimum trade value in USD worth executing
+  waitTime: 60000, // ms between rebalance checks
+  slippageBps: 50, // max slippage in basis points
+  priceTolerance: 0.02, // imbalance fraction that triggers a rebalance
+  rebalancePercentage: 0.5, // target share of value in the first token
+  minimumTradeValueUsd: 1, // minimum trade value in USD worth executing
 });
 ```
 
@@ -139,7 +141,11 @@ To change the traded pair:
 - Transaction timeout protection prevents hanging on failed transactions
 
 ## Contribution
+
 Contributions are welcome! Please feel free to fork the repository, make changes, and submit pull requests.
 
 ## Disclaimer
+
 This project is for educational and experimental purposes only. Use it at your own risk. The authors are not responsible for any financial losses or damages.
+
+There is no official token associated with this project (see the notice at the top).
